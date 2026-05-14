@@ -16,7 +16,7 @@
   "chal_mult": 1.0,
   "challenges": 0,
   "chapters": [],
-  "custom_seed": "QUALITY-BASELINE",
+  "custom_seed": "BASELINE-SLOT-1-NO-FAULT",
   "daily": false,
   "daily_replay": false,
   "depth": 1,
@@ -66,7 +66,7 @@
   "init_ver": 833,
   "item_types_discovered": [],
   "item_val": 0,
-  "last_played": 1778716800000,
+  "last_played": 1778716800001,
   "limited_drops": {
     "ARCANE_STYLI": 0,
     "BAT_HP": 0,
