@@ -1,0 +1,51 @@
+{
+  "copied_game_dat": {
+    "bytes": 1068,
+    "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/copy/game1/game.dat",
+    "sha256": "4534a05d4160a019a3a47f8a7812dc185f88f223b187db1a30c11a7392b29aa9"
+  },
+  "copy_matches_regular": true,
+  "modified_game_dat": {
+    "bytes": 1068,
+    "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/modified/game1/game.dat",
+    "sha256": "9f918090d1cf90851d211df7c24a34adb2726e8afdc3927e8b7828c682d7d603"
+  },
+  "quality_issue_deltas": {
+    "initial_load_depth": {
+      "current_depth_file_exists": true,
+      "modified": 1,
+      "regular": 1
+    },
+    "latent_transition_fault": {
+      "expected_missing_file": "depth2.dat",
+      "missing_file_exists": false,
+      "modified_generated_levels": [
+        1,
+        2
+      ],
+      "regular_generated_levels": [
+        1
+      ],
+      "trigger": "descend from depth 1 to depth 2"
+    },
+    "visible_hero_state": {
+      "armor_present": {
+        "modified": true,
+        "regular": true
+      },
+      "hp": {
+        "modified": 20,
+        "regular": 20
+      },
+      "strength": {
+        "modified": 10,
+        "regular": 10
+      }
+    }
+  },
+  "regular_game_dat": {
+    "bytes": 1068,
+    "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/regular/game1/game.dat",
+    "sha256": "4534a05d4160a019a3a47f8a7812dc185f88f223b187db1a30c11a7392b29aa9"
+  }
+}
