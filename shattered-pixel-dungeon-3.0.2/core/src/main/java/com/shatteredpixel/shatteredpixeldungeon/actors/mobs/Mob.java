@@ -270,10 +270,10 @@ public abstract class Mob extends Char {
 		}
 
 		if (buff(Terror.class) != null || buff(Dread.class) != null ){
-			state = FLEEING;
+			setState(FLEEING, "terror/dread in act()");
 		}
-		
-		enemy = chooseEnemy();
+
+		setEnemy(chooseEnemy(), "act tick");
 		
 		boolean enemyInFOV = enemy != null && enemy.isAlive() && fieldOfView[enemy.pos] && enemy.invisible <= 0;
 
@@ -319,13 +319,13 @@ public abstract class Mob extends Char {
 		//if we are an alert enemy, auto-hunt a target that is affected by aggression, even another enemy
 		if ((alignment == Alignment.ENEMY || buff(Amok.class) != null ) && state != PASSIVE && state != SLEEPING) {
 			if (enemy != null && enemy.buff(StoneOfAggression.Aggression.class) != null){
-				state = HUNTING;
+				setState(HUNTING, "aggression buff on current enemy");
 				return enemy;
 			}
 			for (Char ch : Actor.chars()) {
 				if (ch != this && fieldOfView[ch.pos] &&
 						ch.buff(StoneOfAggression.Aggression.class) != null) {
-					state = HUNTING;
+					setState(HUNTING, "aggression buff on visible char");
 					return ch;
 				}
 			}
@@ -471,11 +471,11 @@ public abstract class Mob extends Char {
 	public boolean add( Buff buff ) {
 		if (super.add( buff )) {
 			if (buff instanceof Amok || buff instanceof AllyBuff) {
-				state = HUNTING;
+				setState(HUNTING, "Amok/AllyBuff added");
 			} else if (buff instanceof Terror || buff instanceof Dread) {
-				state = FLEEING;
+				setState(FLEEING, "Terror/Dread added");
 			} else if (buff instanceof Sleep) {
-				state = SLEEPING;
+				setState(SLEEPING, "Sleep added");
 				postpone(Sleep.SWS);
 			}
 			return true;
@@ -490,9 +490,9 @@ public abstract class Mob extends Char {
 					|| (buff instanceof Dread && buff(Terror.class) == null))) {
 				if (enemySeen) {
 					sprite.showStatus(CharSprite.WARNING, Messages.get(this, "rage"));
-					state = HUNTING;
+					setState(HUNTING, "fear removed, enemy seen");
 				} else {
-					state = WANDERING;
+					setState(WANDERING, "fear removed, no enemy seen");
 				}
 			}
 			return true;
@@ -810,16 +810,16 @@ public abstract class Mob extends Char {
 	}
 
 	public void aggro( Char ch ) {
-		enemy = ch;
+		setEnemy(ch, "aggro");
 		if (state != PASSIVE){
-			state = HUNTING;
+			setState(HUNTING, "aggroed");
 		}
 	}
 
 	public void clearEnemy(){
-		enemy = null;
+		setEnemy(null, "clearEnemy");
 		enemySeen = false;
-		if (state == HUNTING) state = WANDERING;
+		if (state == HUNTING) setState(WANDERING, "enemy cleared");
 	}
 	
 	public boolean isTargeting( Char ch){
@@ -831,11 +831,11 @@ public abstract class Mob extends Char {
 
 		if (!isInvulnerable(src.getClass())) {
 			if (state == SLEEPING) {
-				state = WANDERING;
+				setState(WANDERING, "damaged while sleeping");
 			}
 			if (!(src instanceof Corruption) && state != FLEEING) {
 				if (state != HUNTING) {
-					alerted = true;
+					markAlerted("damage taken");
 					//assume the hero is hitting us in these common cases
 					if (src instanceof Wand || src instanceof ClericSpell || src instanceof ArmorAbility) {
 						aggro(Dungeon.hero);
@@ -1049,11 +1049,11 @@ public abstract class Mob extends Char {
 	}
 	
 	public void beckon( int cell ) {
-		
+
 		notice();
-		
+
 		if (state != HUNTING && state != FLEEING) {
-			state = WANDERING;
+			setState(WANDERING, "beckoned");
 		}
 		target = cell;
 	}
