@@ -1154,11 +1154,11 @@ public abstract class Mob extends Char {
 			if (enemyInFOV) {
 				enemySeen = true;
 				notice();
-				state = HUNTING;
+				setState(HUNTING, "sleep awaken, enemy in FOV");
 				target = enemy.pos;
 			} else {
 				notice();
-				state = WANDERING;
+				setState(WANDERING, "sleep awaken, no enemy in FOV");
 				target = Dungeon.level.randomDestination( Mob.this );
 			}
 
@@ -1194,10 +1194,10 @@ public abstract class Mob extends Char {
 		
 		protected boolean noticeEnemy(){
 			enemySeen = true;
-			
+
 			notice();
-			alerted = true;
-			state = HUNTING;
+			markAlerted("noticeEnemy");
+			setState(HUNTING, "enemy noticed while wandering");
 			target = enemy.pos;
 			
 			if (alignment == Alignment.ENEMY && Dungeon.isChallenged( Challenges.SWARM_INTELLIGENCE )) {
@@ -1262,7 +1262,7 @@ public abstract class Mob extends Char {
 					for (Char ch : recentlyAttackedBy){
 						if (ch != null && ch.isActive() && Actor.chars().contains(ch) && alignment != ch.alignment && fieldOfView[ch.pos] && ch.invisible == 0 && !isCharmedBy(ch)) {
 							if (canAttack(ch) || enemy == null || Dungeon.level.distance(pos, ch.pos) < Dungeon.level.distance(pos, enemy.pos)) {
-								enemy = ch;
+								setEnemy(ch, "Hunting target-switch from recentlyAttackedBy");
 								target = ch.pos;
 								enemyInFOV = true;
 								swapped = true;
@@ -1279,7 +1279,7 @@ public abstract class Mob extends Char {
 					target = enemy.pos;
 				} else if (enemy == null) {
 					sprite.showLost();
-					state = WANDERING;
+					setState(WANDERING, "no enemy while Hunting");
 					target = ((Mob.Wandering)WANDERING).randomDestination();
 					spend( TICK );
 					return true;
@@ -1297,8 +1297,8 @@ public abstract class Mob extends Char {
 					//unless we have already done that and still can't move toward them, then move on.
 					if (!recursing) {
 						Char oldEnemy = enemy;
-						enemy = null;
-						enemy = chooseEnemy();
+						setEnemy(null, "Hunting recurse: clear before re-pick");
+						setEnemy(chooseEnemy(), "Hunting recurse: re-pick");
 						if (enemy != null && enemy != oldEnemy) {
 							recursing = true;
 							boolean result = act(enemyInFOV, justAlerted);
@@ -1310,7 +1310,7 @@ public abstract class Mob extends Char {
 					spend( TICK );
 					if (!enemyInFOV) {
 						sprite.showLost();
-						state = WANDERING;
+						setState(WANDERING, "can't reach enemy in Hunting");
 						target = ((Mob.Wandering)WANDERING).randomDestination();
 					}
 					return true;
@@ -1363,9 +1363,9 @@ public abstract class Mob extends Char {
 			if (buff( Terror.class ) == null && buff( Dread.class ) == null) {
 				if (enemySeen) {
 					sprite.showStatus(CharSprite.WARNING, Messages.get(Mob.class, "rage"));
-					state = HUNTING;
+					setState(HUNTING, "nowhereToRun, enemy seen");
 				} else {
-					state = WANDERING;
+					setState(WANDERING, "nowhereToRun, no enemy seen");
 				}
 			}
 		}
