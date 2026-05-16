@@ -134,12 +134,45 @@ public abstract class Mob extends Char {
 	protected boolean firstAdded = true;
 	protected void onAdd(){
 		if (firstAdded) {
+			//Mob Behaviour Logging: record first-time spawn (skipped on save-restore)
+			MobBehaviourLogger.getInstance().logSpawn(id(), name(), pos);
 			//modify health for ascension challenge if applicable, only on first add
 			float percent = HP / (float) HT;
 			HT = Math.round(HT * AscensionChallenge.statModifier(this));
 			HP = Math.round(HT * percent);
 			firstAdded = false;
 		}
+	}
+
+	// --- Mob Behaviour Logging helpers (ELEC5618 A3 predefined improvement #5) ---
+	// These thin wrappers replace every `state = ...`, `enemy = ...`, and
+	// `alerted = true` site outside of save/restore. They preserve game state
+	// 1:1 and additionally emit an observational log entry. The early-return
+	// branches make logging a no-op when nothing actually changed.
+
+	// Package-private (not public) so tests in the same package can invoke them
+	// directly. They are still "internal" — not part of the documented Mob API.
+
+	void setState(AiState newState, String reason) {
+		if (this.state == newState) return;
+		String from = this.state == null ? "null" : this.state.getClass().getSimpleName();
+		String to   = newState   == null ? "null" : newState.getClass().getSimpleName();
+		this.state = newState;
+		MobBehaviourLogger.getInstance().logStateChange(id(), name(), pos, from, to);
+	}
+
+	void setEnemy(Char newEnemy, String reason) {
+		if (this.enemy == newEnemy) return;
+		this.enemy = newEnemy;
+		String targetName = newEnemy == null ? "<none>" : newEnemy.name();
+		int    targetId   = newEnemy == null ? -1       : newEnemy.id();
+		MobBehaviourLogger.getInstance().logTarget(id(), name(), pos, targetName, targetId);
+	}
+
+	void markAlerted(String trigger) {
+		if (alerted) return;
+		alerted = true;
+		MobBehaviourLogger.getInstance().logAlert(id(), name(), pos, trigger);
 	}
 
 	private static final String STATE	= "state";
