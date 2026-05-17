@@ -29,8 +29,12 @@ import com.badlogic.gdx.utils.GdxRuntimeException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 
 public class FileUtils {
 	
@@ -38,6 +42,16 @@ public class FileUtils {
 	
 	private static Files.FileType defaultFileType = null;
 	private static String defaultPath = "";
+
+	private static final String SAVE_MANIFEST_FILE = "save_checksums.dat";
+	private static final String MANIFEST_VERSION = "version";
+	private static final String MANIFEST_PATHS = "paths";
+	private static final String MANIFEST_CHECKSUMS = "checksums";
+	private static final String MANIFEST_OVERALL_CHECKSUM = "overall_checksum";
+	private static final int CURRENT_MANIFEST_VERSION = 1;
+	private static final String CHECKSUM_PREFIX = "sha256:";
+	private static final int CHECKSUM_BUFFER = 1024*4;
+	private static boolean updatingManifest = false;
 	
 	public static void setDefaultFileProperties( Files.FileType type, String path ){
 		defaultFileType = type;
@@ -73,7 +87,15 @@ public class FileUtils {
 
 	//looks to see if there is any evidence of interrupted saving
 	public static boolean cleanTempFiles(){
-		return cleanTempFiles("");
+		boolean foundTemp = cleanTempFiles("");
+		if (foundTemp) {
+			try {
+				updateSaveManifest();
+			} catch (IOException e) {
+				//temp cleanup is best-effort, save validation will still catch bad files later
+			}
+		}
+		return foundTemp;
 	}
 
 	public static boolean cleanTempFiles( String dirName ){
@@ -133,7 +155,15 @@ public class FileUtils {
 	}
 	
 	public static boolean deleteFile( String name ){
-		return getFileHandle( name ).delete();
+		boolean deleted = getFileHandle( name ).delete();
+		if (deleted) {
+			try {
+				updateSaveManifest();
+			} catch (IOException e) {
+				//deletion already happened, save validation will still catch stale manifests later
+			}
+		}
+		return deleted;
 	}
 
 	//replaces a file with junk data, for as many bytes as given
@@ -142,6 +172,11 @@ public class FileUtils {
 		byte[] data = new byte[bytes];
 		Arrays.fill(data, (byte)1);
 		getFileHandle( name ).writeBytes(data, false);
+		try {
+			updateSaveManifest();
+		} catch (IOException e) {
+			//overwriting already happened, save validation will still catch stale manifests later
+		}
 	}
 	
 	// Directories
@@ -177,6 +212,7 @@ public class FileUtils {
 	//only works for base path
 	public static Bundle bundleFromFile( String fileName ) throws IOException{
 		try {
+			verifySaveManifest(fileName);
 			FileHandle file = getFileHandle( fileName );
 			if (!file.exists() || file.isDirectory() || file.length() == 0) {
 				throw new IOException("file does not exist!");
@@ -198,6 +234,10 @@ public class FileUtils {
 	
 	//only works for base path
 	public static void bundleToFile( String fileName, Bundle bundle ) throws IOException{
+		bundleToFile(fileName, bundle, true);
+	}
+
+	private static void bundleToFile( String fileName, Bundle bundle, boolean updateManifest ) throws IOException{
 		try {
 			FileHandle file = getFileHandle(fileName);
 
@@ -212,6 +252,10 @@ public class FileUtils {
 				bundleToStream(file.write(false), bundle);
 			}
 
+			if (updateManifest && !SAVE_MANIFEST_FILE.equals(fileName)){
+				updateSaveManifest();
+			}
+
 		} catch (GdxRuntimeException e){
 			//game classes expect an IO exception, so wrap the GDX exception in that
 			throw new IOException(e);
@@ -221,6 +265,191 @@ public class FileUtils {
 	private static void bundleToStream( OutputStream output, Bundle bundle ) throws IOException{
 		Bundle.write( bundle, output );
 		output.close();
+	}
+
+	public static void updateSaveManifest() throws IOException {
+		if (defaultFileType == null || updatingManifest) {
+			return;
+		}
+
+		FileHandle root = getFileHandle("");
+		if (root == null || !root.exists() || !root.isDirectory()) {
+			return;
+		}
+
+		updatingManifest = true;
+		try {
+			ArrayList<ManifestEntry> entries = manifestEntries();
+			Bundle manifest = new Bundle();
+			manifest.put(MANIFEST_VERSION, CURRENT_MANIFEST_VERSION);
+			manifest.put(MANIFEST_PATHS, manifestPaths(entries));
+			manifest.put(MANIFEST_CHECKSUMS, manifestChecksums(entries));
+			manifest.put(MANIFEST_OVERALL_CHECKSUM, manifestOverallChecksum(entries));
+
+			bundleToFile(SAVE_MANIFEST_FILE, manifest, false);
+		} finally {
+			updatingManifest = false;
+		}
+	}
+
+	private static void verifySaveManifest( String requestedFile ) throws IOException {
+		if (SAVE_MANIFEST_FILE.equals(requestedFile)) {
+			return;
+		}
+
+		FileHandle manifestFile = getFileHandle(SAVE_MANIFEST_FILE);
+		if (!manifestFile.exists() || manifestFile.isDirectory() || manifestFile.length() == 0) {
+			return;
+		}
+
+		Bundle manifest = bundleFromStream(manifestFile.read());
+		String expected = manifest.getString(MANIFEST_OVERALL_CHECKSUM);
+		if (expected == null || expected.length() == 0) {
+			throw new IOException("save manifest is invalid");
+		}
+
+		String actual = manifestOverallChecksum(manifestEntries());
+		if (!expected.equals(actual)) {
+			throw new IOException("save manifest checksum mismatch");
+		}
+	}
+
+	private static ArrayList<ManifestEntry> manifestEntries() throws IOException {
+		ArrayList<ManifestEntry> entries = new ArrayList<>();
+		collectManifestFiles(getFileHandle(""), "", entries);
+		Collections.sort(entries, new Comparator<ManifestEntry>() {
+			@Override
+			public int compare( ManifestEntry a, ManifestEntry b ) {
+				return a.path.compareTo(b.path);
+			}
+		});
+		return entries;
+	}
+
+	private static void collectManifestFiles( FileHandle dir, String dirName, ArrayList<ManifestEntry> entries ) throws IOException {
+		for (FileHandle file : dir.list()) {
+			String relative = dirName.length() == 0 ? file.name() : dirName + "/" + file.name();
+			if (file.isDirectory()) {
+				if (isActiveGameDir(relative)) {
+					collectManifestFiles(file, relative, entries);
+				}
+			} else if (isManifestProtectedFile(relative)) {
+				entries.add(new ManifestEntry(relative, manifestFileChecksum(relative, file)));
+			}
+		}
+	}
+
+	private static boolean isManifestProtectedFile( String relative ) {
+		if (relative.endsWith(".tmp") || relative.equals(SAVE_MANIFEST_FILE)) {
+			return false;
+		}
+
+		if (relative.indexOf('/') == -1) {
+			return relative.endsWith(".dat") || relative.equals(GameSettings.DEFAULT_PREFS_FILE);
+		}
+
+		int slash = relative.indexOf('/');
+		return isActiveGameDir(relative.substring(0, slash))
+				&& relative.indexOf('/', slash + 1) == -1
+				&& relative.endsWith(".dat");
+	}
+
+	private static boolean isActiveGameDir( String relative ) {
+		if (!relative.startsWith("game") || relative.length() == 4) {
+			return false;
+		}
+		for (int i = 4; i < relative.length(); i++) {
+			char c = relative.charAt(i);
+			if (c < '0' || c > '9') {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static String manifestFileChecksum( String relative, FileHandle file ) throws IOException {
+		if (relative.endsWith(".dat") && file.length() > 1) {
+			String bundleChecksum = Bundle.readChecksum(file.read());
+			if (bundleChecksum != null) {
+				return "bundle:" + bundleChecksum;
+			}
+		}
+		return "bytes:" + fileChecksum(file);
+	}
+
+	private static String[] manifestPaths( ArrayList<ManifestEntry> entries ) {
+		String[] result = new String[entries.size()];
+		for (int i = 0; i < entries.size(); i++) {
+			result[i] = entries.get(i).path;
+		}
+		return result;
+	}
+
+	private static String[] manifestChecksums( ArrayList<ManifestEntry> entries ) {
+		String[] result = new String[entries.size()];
+		for (int i = 0; i < entries.size(); i++) {
+			result[i] = entries.get(i).checksum;
+		}
+		return result;
+	}
+
+	private static String manifestOverallChecksum( ArrayList<ManifestEntry> entries ) throws IOException {
+		StringBuilder builder = new StringBuilder();
+		for (ManifestEntry entry : entries) {
+			builder.append(entry.path);
+			builder.append('\n');
+			builder.append(entry.checksum);
+			builder.append('\n');
+		}
+		return stringChecksum(builder.toString());
+	}
+
+	private static String fileChecksum( FileHandle file ) throws IOException {
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			InputStream input = file.read();
+			try {
+				byte[] buffer = new byte[CHECKSUM_BUFFER];
+				int read;
+				while ((read = input.read(buffer)) != -1) {
+					digest.update(buffer, 0, read);
+				}
+			} finally {
+				input.close();
+			}
+			return CHECKSUM_PREFIX + bytesToHex(digest.digest());
+		} catch (NoSuchAlgorithmException e) {
+			throw new IOException(e);
+		}
+	}
+
+	private static String stringChecksum( String text ) throws IOException {
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			return CHECKSUM_PREFIX + bytesToHex(digest.digest(text.getBytes("UTF-8")));
+		} catch (NoSuchAlgorithmException e) {
+			throw new IOException(e);
+		}
+	}
+
+	private static String bytesToHex( byte[] bytes ) {
+		StringBuilder result = new StringBuilder();
+		for (int i = 0; i < bytes.length; i++) {
+			String hex = Integer.toHexString(bytes[i] & 0xff);
+			if (hex.length() == 1) result.append('0');
+			result.append(hex);
+		}
+		return result.toString();
+	}
+
+	private static class ManifestEntry {
+		private final String path;
+		private final String checksum;
+
+		private ManifestEntry( String path, String checksum ) {
+			this.path = path;
+			this.checksum = checksum;
+		}
 	}
 
 }
