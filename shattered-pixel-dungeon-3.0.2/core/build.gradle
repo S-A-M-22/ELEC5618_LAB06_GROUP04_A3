@@ -1,5 +1,16 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath 'com.github.spotbugs.snom:spotbugs-gradle-plugin:6.0.20'
+    }
+}
+
 apply plugin: 'java-library'
 apply plugin: 'jacoco'
+apply plugin: 'com.github.spotbugs'
 
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
 sourceCompatibility = targetCompatibility = appJavaCompatibility
@@ -48,4 +59,29 @@ jacocoTestReport {
             ])
         }))
     }
+}
+
+// ---- SpotBugs: static analysis ----
+// Scoped to the new logger only — the legacy game code is out of scope for SQA.
+spotbugs {
+    toolVersion = '4.8.5'
+    effort = com.github.spotbugs.snom.Effort.valueOf('MAX')
+    reportLevel = com.github.spotbugs.snom.Confidence.valueOf('LOW')
+    ignoreFailures = true // report-only; do not block the build
+}
+
+tasks.named('spotbugsMain') {
+    classDirs.setFrom(files(sourceSets.main.output.classesDirs.files.collect {
+        fileTree(dir: it, includes: [
+            'com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLogger*.class'
+        ])
+    }))
+    reports {
+        html.required = true
+        xml.required = true
+    }
+}
+
+tasks.named('spotbugsTest') {
+    enabled = false
 }
