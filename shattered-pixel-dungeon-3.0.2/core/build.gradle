@@ -5,12 +5,14 @@ buildscript {
     }
     dependencies {
         classpath 'com.github.spotbugs.snom:spotbugs-gradle-plugin:6.0.20'
+        classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.15.0'
     }
 }
 
 apply plugin: 'java-library'
 apply plugin: 'jacoco'
 apply plugin: 'com.github.spotbugs'
+apply plugin: 'info.solidsoft.pitest'
 
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
 sourceCompatibility = targetCompatibility = appJavaCompatibility
@@ -84,4 +86,20 @@ tasks.named('spotbugsMain') {
 
 tasks.named('spotbugsTest') {
     enabled = false
+}
+
+// ---- PITest: mutation testing ----
+pitest {
+    targetClasses = ['com.shatteredpixel.shatteredpixeldungeon.actors.mobs.MobBehaviourLogger*']
+    targetTests   = [
+        'com.shatteredpixel.shatteredpixeldungeon.actors.mobs.MobBehaviourLoggerTest*',
+        'com.shatteredpixel.shatteredpixeldungeon.actors.mobs.MobBehaviourLoggerIntegrationTest'
+    ]
+    excludedTestClasses = ['*PerformanceTest']
+    threads = 4
+    outputFormats = ['HTML', 'XML']
+    pitestVersion = '1.16.0'
+    junit5PluginVersion = '1.2.1'
+    timestampedReports = false
+    timeoutConstInMillis = 30000
 }
