@@ -79,6 +79,15 @@ class MobBehaviourLoggerTest {
 		}
 
 		@Test
+		@DisplayName("isEnabled reflects setEnabled in both directions")
+		void isEnabled_reflectsSetter() {
+			logger.setEnabled(false);
+			assertFalse(logger.isEnabled());
+			logger.setEnabled(true);
+			assertTrue(logger.isEnabled());
+		}
+
+		@Test
 		@DisplayName("setEnabled(false) stops events from being buffered")
 		void disabled_doesNotBuffer() {
 			logger.setEnabled(false);
