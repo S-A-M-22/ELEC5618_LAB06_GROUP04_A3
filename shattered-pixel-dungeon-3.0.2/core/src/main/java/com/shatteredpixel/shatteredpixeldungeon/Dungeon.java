@@ -834,6 +834,9 @@ public class Dungeon {
 	
 	public static void deleteGame( int save, boolean deleteLevels ) {
 
+		// Preserve files before overwriting so the player can recover them.
+		RecoveryManager.moveToRecovery(save);
+
 		if (deleteLevels) {
 			String folder = GamesInProgress.gameFolder(save);
 			for (String file : FileUtils.filesInDir(folder)){
@@ -844,7 +847,7 @@ public class Dungeon {
 		}
 
 		FileUtils.overwriteFile(GamesInProgress.gameFile(save), 1);
-		
+
 		GamesInProgress.delete( save );
 	}
 	

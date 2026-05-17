@@ -24,6 +24,7 @@ package com.shatteredpixel.shatteredpixeldungeon.scenes;
 import com.shatteredpixel.shatteredpixeldungeon.Badges;
 import com.shatteredpixel.shatteredpixeldungeon.Chrome;
 import com.shatteredpixel.shatteredpixeldungeon.GamesInProgress;
+import com.shatteredpixel.shatteredpixeldungeon.RecoveryManager;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroSubClass;
@@ -38,6 +39,7 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.StyledButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
 import com.shatteredpixel.shatteredpixeldungeon.windows.IconTitle;
 import com.shatteredpixel.shatteredpixeldungeon.windows.WndGameInProgress;
+import com.shatteredpixel.shatteredpixeldungeon.windows.WndRecoverySave;
 import com.watabou.noosa.BitmapText;
 import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
@@ -149,6 +151,31 @@ public class StartScene extends PixelScene {
 			btnSort.setRect(slotLeft, yPos, btnSort.reqWidth() + 4, 12);
 		}
 		if (games.size() >= 2) add(btnSort);
+
+		if (!RecoveryManager.listRecoveryEntries().isEmpty()) {
+			StyledButton btnRecover = new StyledButton(Chrome.Type.TOAST_TR,
+					Messages.get(this, "recover"), 6) {
+				@Override
+				protected void onClick() {
+					super.onClick();
+					ShatteredPixelDungeon.scene().add(new WndRecoverySave());
+				}
+			};
+			btnRecover.textColor(0xCCCCCC);
+
+			if (yPos + 10 > Camera.main.height) {
+				btnRecover.setRect(
+						slotLeft + SLOT_WIDTH - btnRecover.reqWidth() - 4,
+						Camera.main.height - 14,
+						btnRecover.reqWidth() + 4, 12);
+			} else {
+				btnRecover.setRect(
+						slotLeft + SLOT_WIDTH - btnRecover.reqWidth() - 4,
+						yPos,
+						btnRecover.reqWidth() + 4, 12);
+			}
+			add(btnRecover);
+		}
 
 		fadeIn();
 		
