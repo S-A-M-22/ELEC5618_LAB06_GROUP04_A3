@@ -97,3 +97,88 @@ This satisfies the test plan's target V(G) ≤ 5 for new logger code (Section 4.
 The logging subsystem is observational by construction and adds zero complexity to the
 mob AI itself.
 
+---
+
+## 5. SQA results
+
+All metrics scoped to the new logging subsystem only (existing legacy game code is
+out of scope; we deliberately did not retrofit SQA on code we did not author).
+
+### 5.1 Test counts
+
+| Suite | Tests |
+|---|---:|
+| `MobBehaviourLoggerTest` (unit, 9 `@Nested` groups) | 36 |
+| `MobBehaviourLoggerIntegrationTest` (TestMob fixture) | 13 |
+| `MobBehaviourLoggerPerformanceTest` (microbenchmarks) | 4 |
+| **Total** | **53** — all passing |
+
+### 5.2 Code coverage (JaCoCo 0.8.11)
+
+| Class | Lines | Branches | Methods |
+|---|---:|---:|---:|
+| `MobBehaviourLogger.Entry` | 100% (9/9) | n/a | 100% (2/2) |
+| `MobBehaviourLogger` | 95.5% (63/66) | **100% (16/16)** | 95.2% (20/21) |
+
+The single uncovered method is `defaultFileSink(String)` — calls libGDX
+`FileHandle.writeString` which requires a Gdx runtime. Tests inject a stub
+sink instead. Path is exercised when the game runs.
+
+Report: `core/build/reports/jacoco/test/html/index.html`.
+
+### 5.3 Static analysis (SpotBugs 4.8.5, effort=MAX, confidence=LOW)
+
+2 findings, both reviewed and accepted as intentional design choices:
+
+| Bug pattern | Location | Severity | Rationale for accepting |
+|---|---|---|---|
+| `MS_EXPOSE_REP` (CWE-218) | `MobBehaviourLogger.getInstance()` | Medium | Returning the singleton reference is the entire point of the accessor; suppressing this finding via a true-immutable design would force a fully-static API and lose injectable sinks for testing. |
+| `SING_SINGLETON_HAS_NONPRIVATE_CONSTRUCTOR` | `MobBehaviourLogger()` | Medium | Constructor is package-private (not public) specifically so tests in the same package can construct fresh loggers per test, avoiding singleton-state leakage between tests. The trade is testability vs. dogmatic singleton purity; we choose testability. |
+
+No CORRECTNESS-, PERFORMANCE-, or SECURITY-priority findings.
+
+Report: `core/build/reports/spotbugs/main.html`.
+
+### 5.4 Mutation testing (PITest 1.16.0)
+
+| Metric | Value |
+|---|---:|
+| Mutations generated | 29 |
+| Mutations killed | 28 |
+| Mutations surviving | 0 |
+| Mutations with no test coverage | 1 (the libGDX `defaultFileSink`) |
+| Line coverage (mutated classes) | 96% (72/75) |
+| **Test strength** | **100%** |
+
+The one uncovered mutation is the libGDX-touching `defaultFileSink` line, same
+reason as the JaCoCo gap. Every other reachable mutation across 14 mutation
+operators is killed by an existing assertion — meaning the test suite genuinely
+verifies behaviour rather than just executing code.
+
+One round of TDD-style feedback during this work: PITest initially reported
+`isEnabled()` returning `true` constantly as a surviving mutation. That
+identified a test gap (we asserted "is true by default" but never asserted
+"is false after disable"). Adding `isEnabled_reflectsSetter` killed it,
+raising test strength from 96% to 100%.
+
+Report: `core/build/reports/pitest/index.html`.
+
+### 5.5 Performance microbenchmarks
+
+Run on the developer machine (Windows, JDK 21, single warm run after 50k
+warm-up iterations). Numbers are reported as ns/event; "events/sec" is
+the headline. Stub sinks isolate the logger from the file system.
+
+| Scenario | ns/event | events/sec |
+|---|---:|---:|
+| `setEnabled(false)` — disabled | **4.6** | 215,000,000 |
+| Enabled, `logSpawn` with stub sinks | 1,318 | 758,000 |
+| Enabled, `logStateChange` with stub sinks | 1,166 | 858,000 |
+| Enabled, eviction at cap=1000 | 1,343 | 745,000 |
+
+In actual gameplay, mob events fire at ~10–100 events/sec — eight orders of
+magnitude below the logger's saturation throughput. The assignment's
+"must not disrupt game performance" requirement is satisfied with margin.
+
+Report: `core/build/reports/tests/test/index.html` (look for the
+`MobBehaviourLoggerPerformanceTest` lines containing `[PERF]`).
