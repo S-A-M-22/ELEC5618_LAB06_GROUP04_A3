@@ -6,4 +6,14 @@ sourceCompatibility = targetCompatibility = appJavaCompatibility
 dependencies {
     api project(':SPD-classes')
     implementation project(':services')
+
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "com.badlogicgames.gdx:gdx-backend-headless:$gdxVersion"
+    testImplementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+}
+
+test {
+    // HeadlessApplication resolves Gdx.files.internal() relative to the working directory.
+    // Pointing at src/main/assets lets Messages.setup() find the I18N bundle files.
+    workingDir = file('src/main/assets')
 }

@@ -97,6 +97,9 @@ public class RecoveryManager {
      * @param targetSlot destination game-slot number (1-based)
      */
     public static void restoreEntry(String entryName, int targetSlot) {
+        // Clear any existing files in the target slot so the restore is a clean replacement,
+        // matching the behaviour of the Gradle restoreRecoverySave task.
+        FileUtils.deleteDir(GamesInProgress.gameFolder(targetSlot));
         copyGameDir(RECOVERY_DIR + "/" + entryName, GamesInProgress.gameFolder(targetSlot));
         GamesInProgress.setUnknown(targetSlot);
     }
