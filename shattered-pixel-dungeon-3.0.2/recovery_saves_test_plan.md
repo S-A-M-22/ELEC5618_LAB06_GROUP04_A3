@@ -216,11 +216,14 @@ The full recovery-saves test plan defines ten planned test cases. The table belo
 | EV-09 | `.\gradlew.bat restoreRecoverySave -PrecoveryIndex=99 -PtargetSlot=1` | The task rejected the invalid recovery index with the message `recoveryIndex 99 is out of range (1-1)`. This is an expected controlled failure. | PASS |
 | EV-10 | `.\gradlew.bat deleteRecoverySave -PrecoveryIndex=1` | The task successfully deleted the recovery entry `1716000000000_game1`. | PASS |
 | EV-11 | `.\gradlew.bat listRecoverySaves` after deletion | The task reported `No recovery saves found`, confirming that the recovery entry had been removed. | PASS |
+| EV-12A | Code inspection of `RecoveryManager.java` | The code defines `MAX_RECOVERY_SAVES = 5`. After a deleted save is copied into the recovery directory, `moveToRecovery()` calls `pruneOldEntries()`. The pruning logic removes the oldest sorted recovery entry while the entry count is greater than five. | PASS |
+| EV-12B | `.\gradlew.bat desktop:testRecoveryRetention` using a temporary verification harness | The harness created six synthetic recovery entries, invoked the recovery pruning logic, and confirmed that the count changed from 6 before pruning to 5 after pruning. The oldest entry was removed and Gradle reported `BUILD SUCCESSFUL`. | PASS |
 
 ### Notes on Expected Controlled Failures
 
-Some verification commands intentionally used invalid input values. In those cases, `BUILD FAILED` is the expected result because the Gradle task correctly rejects unsafe or impossible recovery operations. These cases support the reliability and fault-tolerance claim because the implementation fails safely with clear error messages.
+Some verification commands intentionally used invalid input values. In those cases, `BUILD FAILED` is the expected result because the Gradle task correctly rejects unsafe or impossible recovery operations. These cases support the reliability and fault-tolerance claim because the implementation fails safely with clear error messages. 
 
-### Notes on Synthetic Test Data
+### Notes on Synthetic Test 
 
+EV-12B used a temporary local verification harness only for evidence collection. The harness and temporary Gradle task were not part of the production implementation and were removed after the screenshot was captured.
 A synthetic recovery entry was used to verify the Gradle listing, restore, input validation, and deletion behaviours without requiring full gameplay progression. This validates the command-line recovery mechanism and file restoration logic. Full gameplay loading of a real recovered save should be covered separately by manual system testing if time permits.
