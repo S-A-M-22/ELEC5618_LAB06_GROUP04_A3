@@ -198,3 +198,29 @@ If the recovery implementation assumes that save-slot directories contain flat f
 ## 9. Conclusion
 
 The recovery saves improvement is expected to improve reliability by increasing recoverability after accidental save deletion. The tests above verify whether the implementation satisfies the predefined assignment requirement and whether the feature is integrated safely into the existing save deletion and start scene workflows.
+
+## 10. Executed Test Evidence
+
+The full recovery-saves test plan defines ten planned test cases. The table below records the verification activities that have been executed so far and can be used as evidence for the final video demonstration.
+
+| Evidence ID | Command / Action | Result | Status |
+|---|---|---|---|
+| EV-01 | `.\gradlew.bat build` | Full project build completed successfully. Gradle reported `BUILD SUCCESSFUL` with 115 executed tasks. | PASS |
+| EV-02 | `.\gradlew.bat listRecoverySaves` with an empty recovery directory | The task resolved the save directory and recovery folder correctly, then reported `No recovery saves found.` The task completed successfully. | PASS |
+| EV-03 | `.\gradlew.bat restoreRecoverySave -PrecoveryIndex=1 -PtargetSlot=1` with no recovery entries | The task stopped with a clear error message: `No recovery saves found`. This is an expected controlled failure because no recovery entry existed. | PASS |
+| EV-04 | Created a synthetic recovery entry at `recovery/1716000000000_game1` with `game.dat` and `depth1.dat` | The synthetic recovery entry was created successfully for controlled command-line testing. | PASS |
+| EV-05 | `.\gradlew.bat listRecoverySaves` after creating the synthetic recovery entry | The task listed the recovery entry with index `1`, original slot `game1`, and a parsed deletion timestamp. | PASS |
+| EV-06 | `.\gradlew.bat restoreRecoverySave -PrecoveryIndex=1 -PtargetSlot=1` | The task restored `1716000000000_game1` to game slot 1 and reported `2 file(s) copied`. | PASS |
+| EV-07 | `dir "C:\Users\meiru\AppData\Roaming\.shatteredpixel\Shattered Pixel Dungeon\game1"` | File inspection confirmed that `game1` contains `game.dat` and `depth1.dat` after restoration. | PASS |
+| EV-08 | `.\gradlew.bat restoreRecoverySave -PrecoveryIndex=1 -PtargetSlot=7` | The task rejected the invalid target slot with the message `targetSlot must be between 1 and 6 (got 7)`. This is an expected controlled failure. | PASS |
+| EV-09 | `.\gradlew.bat restoreRecoverySave -PrecoveryIndex=99 -PtargetSlot=1` | The task rejected the invalid recovery index with the message `recoveryIndex 99 is out of range (1-1)`. This is an expected controlled failure. | PASS |
+| EV-10 | `.\gradlew.bat deleteRecoverySave -PrecoveryIndex=1` | The task successfully deleted the recovery entry `1716000000000_game1`. | PASS |
+| EV-11 | `.\gradlew.bat listRecoverySaves` after deletion | The task reported `No recovery saves found`, confirming that the recovery entry had been removed. | PASS |
+
+### Notes on Expected Controlled Failures
+
+Some verification commands intentionally used invalid input values. In those cases, `BUILD FAILED` is the expected result because the Gradle task correctly rejects unsafe or impossible recovery operations. These cases support the reliability and fault-tolerance claim because the implementation fails safely with clear error messages.
+
+### Notes on Synthetic Test Data
+
+A synthetic recovery entry was used to verify the Gradle listing, restore, input validation, and deletion behaviours without requiring full gameplay progression. This validates the command-line recovery mechanism and file restoration logic. Full gameplay loading of a real recovered save should be covered separately by manual system testing if time permits.
