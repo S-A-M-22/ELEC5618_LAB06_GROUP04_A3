@@ -218,6 +218,8 @@ The full recovery-saves test plan defines ten planned test cases. The table belo
 | EV-11 | `.\gradlew.bat listRecoverySaves` after deletion | The task reported `No recovery saves found`, confirming that the recovery entry had been removed. | PASS |
 | EV-12A | Code inspection of `RecoveryManager.java` | The code defines `MAX_RECOVERY_SAVES = 5`. After a deleted save is copied into the recovery directory, `moveToRecovery()` calls `pruneOldEntries()`. The pruning logic removes the oldest sorted recovery entry while the entry count is greater than five. | PASS |
 | EV-12B | `.\gradlew.bat desktop:testRecoveryRetention` using a temporary verification harness | The harness created six synthetic recovery entries, invoked the recovery pruning logic, and confirmed that the count changed from 6 before pruning to 5 after pruning. The oldest entry was removed and Gradle reported `BUILD SUCCESSFUL`. | PASS |
+| EV-13 | Desktop UI recovery workflow screenshot | The recovery entries were visible before launching the UI, and the recovery interface was located in the desktop game. This provides UI integration evidence for the recovery workflow. | PASS |
+| EV-14 | Created and deleted a real game save through the desktop game UI, then ran `.\gradlew.bat listRecoverySaves` | The deleted real save appeared as a timestamped recovery entry, confirming that the real deletion workflow creates a recovery save. | PASS |
 
 ### Notes on Expected Controlled Failures
 
