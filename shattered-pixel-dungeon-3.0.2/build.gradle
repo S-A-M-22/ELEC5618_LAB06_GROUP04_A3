@@ -40,6 +40,12 @@ allprojects {
 
 }
 
+tasks.register('featureTest') {
+    group = 'verification'
+    description = 'Runs the branch-added unit and integration tests.'
+    dependsOn ':core:test', ':core:integrationTest', ':core:jacocoTestReport'
+}
+
 // ---------------------------------------------------------------------------
 // Recovery-save utilities
 //

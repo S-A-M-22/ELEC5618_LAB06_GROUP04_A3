@@ -42,7 +42,7 @@ import static org.junit.Assert.*;
  * Unit tests for RecoveryManager — each test exercises one method in isolation.
  * See test/unit_test_plan.md for the full test plan.
  */
-public class RecoveryManagerUnitTest {
+public class RecoveryManagerTest {
 
     @Rule
     public TemporaryFolder tempFolder = new TemporaryFolder();
@@ -102,6 +102,18 @@ public class RecoveryManagerUnitTest {
         assertEquals("300_game1", entries.get(2));
     }
 
+    @Test
+    public void listRecoveryEntries_ignoresFilesInRecoveryDirectory() throws IOException {
+        File recoveryDir = tempFolder.newFolder("recovery");
+        new File(recoveryDir, "100_game1").mkdir();
+        assertTrue(new File(recoveryDir, "200_game2.txt").createNewFile());
+
+        ArrayList<String> entries = RecoveryManager.listRecoveryEntries();
+
+        assertEquals(1, entries.size());
+        assertEquals("100_game1", entries.get(0));
+    }
+
     // UT-06
     @Test
     public void moveToRecovery_nonExistentSourceSlot_doesNothing() {
@@ -127,6 +139,24 @@ public class RecoveryManagerUnitTest {
         File entryDir = new File(new File(tempFolder.getRoot(), "recovery"), entries.get(0));
         assertTrue(new File(entryDir, "game.dat").exists());
         assertTrue(new File(entryDir, "depth1.dat").exists());
+    }
+
+    @Test
+    public void moveToRecovery_existingSlot_skipsNestedDirectories() throws IOException {
+        File slotDir = new File(tempFolder.getRoot(), "game1");
+        File nestedDir = new File(slotDir, "nested");
+        assertTrue(nestedDir.mkdirs());
+        assertTrue(new File(slotDir, "game.dat").createNewFile());
+        assertTrue(new File(nestedDir, "ignored.dat").createNewFile());
+
+        RecoveryManager.moveToRecovery(1);
+
+        ArrayList<String> entries = RecoveryManager.listRecoveryEntries();
+        assertEquals(1, entries.size());
+
+        File entryDir = new File(new File(tempFolder.getRoot(), "recovery"), entries.get(0));
+        assertTrue(new File(entryDir, "game.dat").exists());
+        assertFalse(new File(entryDir, "nested").exists());
     }
 
     // UT-08

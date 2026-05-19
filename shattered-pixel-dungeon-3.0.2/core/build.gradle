@@ -1,4 +1,5 @@
 apply plugin: 'java-library'
+apply plugin: 'jacoco'
 
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
 sourceCompatibility = targetCompatibility = appJavaCompatibility
@@ -12,8 +13,55 @@ dependencies {
     testImplementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
 }
 
+configurations {
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+sourceSets {
+    integrationTest {
+        java.srcDir file('src/integrationTest/java')
+        resources.srcDir file('src/integrationTest/resources')
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
 test {
     // HeadlessApplication resolves Gdx.files.internal() relative to the working directory.
     // Pointing at src/main/assets lets Messages.setup() find the I18N bundle files.
     workingDir = file('src/main/assets')
+}
+
+task integrationTest(type: Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    workingDir = file('src/main/assets')
+    shouldRunAfter test
+}
+
+jacoco {
+    toolVersion = '0.8.11'
+}
+
+jacocoTestReport {
+    dependsOn test, integrationTest
+    executionData fileTree(buildDir).include(
+            'jacoco/test.exec',
+            'jacoco/integrationTest.exec'
+    )
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = true
+    }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, includes: [
+                    'com/shatteredpixel/shatteredpixeldungeon/RecoveryManager*.class'
+            ])
+        }))
+    }
 }
