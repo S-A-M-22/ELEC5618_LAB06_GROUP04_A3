@@ -42,7 +42,7 @@ import static org.junit.Assert.*;
 /**
  * Integration tests for the recovery saves workflow.
  * Each test exercises multiple RecoveryManager methods together as a complete scenario.
- * See test/integration_test_plan.md for the full test plan.
+ * See doc/recovery-saves/integration_test_plan.md for the full test plan.
  */
 public class RecoverySavesIntegrationTest {
 

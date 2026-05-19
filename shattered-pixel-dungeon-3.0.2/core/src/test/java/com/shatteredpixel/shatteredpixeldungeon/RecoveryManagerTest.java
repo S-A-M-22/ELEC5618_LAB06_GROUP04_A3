@@ -40,7 +40,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for RecoveryManager — each test exercises one method in isolation.
- * See test/unit_test_plan.md for the full test plan.
+ * See doc/recovery-saves/unit_test_plan.md for the full test plan.
  */
 public class RecoveryManagerTest {
 
