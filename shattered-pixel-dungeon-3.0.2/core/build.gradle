@@ -32,6 +32,20 @@ dependencies {
     testImplementation 'org.mockito:mockito-core:5.11.0'
 }
 
+configurations {
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+sourceSets {
+    integrationTest {
+        java.srcDir file('src/integrationTest/java')
+        resources.srcDir file('src/integrationTest/resources')
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
 test {
     useJUnitPlatform()
     testLogging {
@@ -41,13 +55,30 @@ test {
     finalizedBy jacocoTestReport
 }
 
+task integrationTest(type: Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+        showStandardStreams = true
+    }
+    shouldRunAfter test
+}
+
 // ---- JaCoCo: line/branch coverage ----
 jacoco {
     toolVersion = '0.8.11'
 }
 
 jacocoTestReport {
-    dependsOn test
+    dependsOn test, integrationTest
+    executionData fileTree(buildDir).include(
+            'jacoco/test.exec',
+            'jacoco/integrationTest.exec'
+    )
     reports {
         xml.required = true
         html.required = true
