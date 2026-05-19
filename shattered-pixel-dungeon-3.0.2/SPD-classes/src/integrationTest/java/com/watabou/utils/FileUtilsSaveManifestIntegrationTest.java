@@ -42,7 +42,10 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.RandomAccessFile;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.security.Provider;
+import java.security.Security;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -53,7 +56,12 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-public class FileUtilsSaveManifestTest {
+/**
+ * Integration tests for the save-integrity workflow. These scenarios exercise
+ * FileUtils, Bundle, GameSettings, libGDX FileHandle adapters, and real
+ * temporary files together rather than a single method in isolation.
+ */
+public class FileUtilsSaveManifestIntegrationTest {
 
 	private static final String MANIFEST = "save_checksums.dat";
 
@@ -138,6 +146,35 @@ public class FileUtilsSaveManifestTest {
 		assertTrue(manifest.getStringArray("checksums")[0].startsWith("bytes:sha256:"));
 		assertTrue(manifest.getStringArray("checksums")[1].startsWith("bytes:sha256:"));
 		assertTrue(manifest.getStringArray("checksums")[2].startsWith("bytes:sha256:"));
+	}
+
+	@Test
+	public void fileHandleAndBasicFileHelpersCoverAllSupportedFileTypes() throws IOException {
+		new FileUtils();
+		writeText("present.dat", "abc");
+		writeText("empty.dat", "");
+		mkdirs("dir");
+		writeText("dir/child.txt", "child");
+
+		assertTrue(FileUtils.getFileHandle(Files.FileType.Classpath, "classpath.dat").path().endsWith("classpath.dat"));
+		assertTrue(FileUtils.getFileHandle(Files.FileType.Internal, "internal.dat").path().endsWith("internal.dat"));
+		assertTrue(FileUtils.getFileHandle(Files.FileType.External, "external.dat").path().endsWith("external.dat"));
+		assertTrue(FileUtils.getFileHandle(Files.FileType.Absolute, file("absolute.dat").getAbsolutePath()).path().endsWith("absolute.dat"));
+		assertTrue(FileUtils.getFileHandle(Files.FileType.Local, "local.dat").path().endsWith("local.dat"));
+
+		assertTrue(FileUtils.fileExists("present.dat"));
+		assertFalse(FileUtils.fileExists("empty.dat"));
+		assertFalse(FileUtils.fileExists("dir"));
+		assertEquals(3, FileUtils.fileLength("present.dat"));
+		assertEquals(0, FileUtils.fileLength("missing.dat"));
+		assertEquals(0, FileUtils.fileLength("dir"));
+		assertTrue(FileUtils.dirExists("dir"));
+		assertFalse(FileUtils.dirExists("present.dat"));
+		assertTrue(FileUtils.filesInDir("dir").contains("child.txt"));
+		assertTrue(FileUtils.filesInDir("present.dat").isEmpty());
+		assertFalse(FileUtils.deleteFile("missing.dat"));
+		assertFalse(FileUtils.deleteDir("present.dat"));
+		assertTrue(FileUtils.deleteDir("dir"));
 	}
 
 	@Test
@@ -235,6 +272,55 @@ public class FileUtilsSaveManifestTest {
 	}
 
 	@Test
+	public void cleanTempFilesDeletesEmptyFilesInvalidTempsAndOlderTemps() throws Exception {
+		writeText("empty.dat", "");
+		writeText("bad.dat.tmp", "not a bundle");
+		FileUtils.bundleToFile("rankings.dat", bundle("score", 10));
+		File temp = file("rankings.dat.tmp");
+		writeSignedBundle(temp, bundle("score", 11));
+		assertTrue(file("rankings.dat").setLastModified(System.currentTimeMillis() + 5000));
+		assertTrue(temp.setLastModified(System.currentTimeMillis() - 5000));
+
+		assertTrue(FileUtils.cleanTempFiles());
+
+		assertFalse(file("empty.dat").exists());
+		assertFalse(file("bad.dat.tmp").exists());
+		assertFalse(temp.exists());
+		assertEquals(10, FileUtils.bundleFromFile("rankings.dat").getInt("score"));
+	}
+
+	@Test
+	public void cleanTempFilesReplacesInvalidOriginalAndRecursesIntoSubdirectories() throws Exception {
+		mkdirs("game1");
+		writeText("game1/empty.dat", "");
+		writeText("rankings.dat", "not a bundle");
+		writeSignedBundle(file("rankings.dat.tmp"), bundle("score", 42));
+
+		assertTrue(FileUtils.cleanTempFiles());
+
+		assertFalse(file("game1/empty.dat").exists());
+		assertFalse(file("rankings.dat.tmp").exists());
+		assertEquals(42, FileUtils.bundleFromFile("rankings.dat").getInt("score"));
+	}
+
+	@Test
+	public void fileOperationsSwallowManifestRefreshFailuresAfterPrimaryAction() throws Exception {
+		FileUtils.bundleToFile("rankings.dat", bundle("score", 1));
+		writeSignedBundle(file("rankings.dat.tmp"), bundle("score", 2));
+		assertTrue(file("rankings.dat.tmp").setLastModified(System.currentTimeMillis() + 5000));
+		writeText("delete-me.dat", "delete");
+		Gdx.files = new ManifestWriteFailingFiles(root);
+		FileUtils.setDefaultFileProperties(Files.FileType.Local, "");
+
+		assertTrue(FileUtils.cleanTempFiles());
+		assertTrue(FileUtils.deleteFile("delete-me.dat"));
+		FileUtils.overwriteFile("rankings.dat", 3);
+
+		assertFalse(file("delete-me.dat").exists());
+		assertEquals(3, file("rankings.dat").length());
+	}
+
+	@Test
 	public void updateManifestNoopsWhenFileUtilsIsNotReadyOrAlreadyUpdating() throws Exception {
 		Field updatingManifest = FileUtils.class.getDeclaredField("updatingManifest");
 		updatingManifest.setAccessible(true);
@@ -255,6 +341,112 @@ public class FileUtilsSaveManifestTest {
 			assertFalse(file(MANIFEST).exists());
 		} finally {
 			updatingManifest.setBoolean(null, false);
+		}
+	}
+
+	@Test
+	public void bundleFromFileRejectsMissingEmptyDirectoryAndGdxFailures() throws IOException {
+		mkdirs("dir.dat");
+		writeText("empty.dat", "");
+
+		assertBundleRejected("missing.dat");
+		assertBundleRejected("empty.dat");
+		assertBundleRejected("dir.dat");
+
+		Gdx.files = new ThrowingFiles();
+		FileUtils.setDefaultFileProperties(Files.FileType.Local, "");
+		assertBundleRejected("game1/game.dat");
+	}
+
+	@Test
+	public void bundleToFileOverwritesExistingFileThroughTempFile() throws IOException {
+		FileUtils.bundleToFile("rankings.dat", bundle("score", 1));
+		FileUtils.bundleToFile("rankings.dat", bundle("score", 2));
+
+		assertEquals(2, FileUtils.bundleFromFile("rankings.dat").getInt("score"));
+		assertFalse(file("rankings.dat.tmp").exists());
+	}
+
+	@Test
+	public void bundleToFileWrapsGdxWriteFailuresAsIoExceptions() {
+		Gdx.files = new ThrowingFiles();
+		FileUtils.setDefaultFileProperties(Files.FileType.Local, "");
+
+		try {
+			FileUtils.bundleToFile("rankings.dat", bundle("score", 1));
+			fail("Expected GdxRuntimeException to be wrapped as IOException");
+		} catch (IOException expected) {
+			// expected
+		}
+	}
+
+	@Test
+	public void verifyRejectsInvalidManifestShapes() throws IOException {
+		mkdirs("game1");
+		writeSignedBundle("game1/game.dat", bundle("depth", 1));
+
+		Bundle missingOverall = new Bundle();
+		missingOverall.put("paths", new String[]{"game*/game.dat"});
+		missingOverall.put("checksums", new String[]{"bytes:sha256:abc"});
+		writeSignedBundle(MANIFEST, missingOverall);
+		assertBundleRejected("game1/game.dat");
+
+		Bundle mismatchedArrays = new Bundle();
+		mismatchedArrays.put("paths", new String[]{"game*/game.dat"});
+		mismatchedArrays.put("checksums", new String[]{});
+		mismatchedArrays.put("overall_checksum", "sha256:not-real-but-non-empty");
+		writeSignedBundle(MANIFEST, mismatchedArrays);
+		assertBundleRejected("game1/game.dat");
+
+		Bundle badOverall = new Bundle();
+		badOverall.put("paths", new String[]{"game*/game.dat"});
+		badOverall.put("checksums", new String[]{"bytes:sha256:abc"});
+		badOverall.put("overall_checksum", "sha256:not-the-entry-checksum");
+		writeSignedBundle(MANIFEST, badOverall);
+		assertBundleRejected("game1/game.dat");
+	}
+
+	@Test
+	public void manifestSortsDuplicateNormalizedPathsByChecksum() throws IOException {
+		mkdirs("game1");
+		mkdirs("game2");
+		FileUtils.bundleToFile("game1/game.dat", bundle("depth", 1));
+		FileUtils.bundleToFile("game2/game.dat", bundle("depth", 2));
+
+		Bundle manifest = FileUtils.bundleFromFile(MANIFEST);
+
+		assertArrayEquals(new String[]{"game*/game.dat", "game*/game.dat"}, manifest.getStringArray("paths"));
+		assertTrue(manifest.getStringArray("checksums")[0].compareTo(manifest.getStringArray("checksums")[1]) < 0);
+	}
+
+	@Test
+	public void checksumHelpersWrapUnavailableSha256Provider() throws Exception {
+		Provider[] providers = Security.getProviders();
+		for (Provider provider : providers) {
+			Security.removeProvider(provider.getName());
+		}
+		try {
+			Method fileChecksum = FileUtils.class.getDeclaredMethod("fileChecksum", FileHandle.class);
+			fileChecksum.setAccessible(true);
+			try {
+				fileChecksum.invoke(null, FileUtils.getFileHandle("rankings.dat"));
+				fail("Expected missing SHA-256 provider to fail file checksum");
+			} catch (Exception expected) {
+				assertTrue(expected.getCause() instanceof IOException);
+			}
+
+			Method stringChecksum = FileUtils.class.getDeclaredMethod("stringChecksum", String.class);
+			stringChecksum.setAccessible(true);
+			try {
+				stringChecksum.invoke(null, "text");
+				fail("Expected missing SHA-256 provider to fail string checksum");
+			} catch (Exception expected) {
+				assertTrue(expected.getCause() instanceof IOException);
+			}
+		} finally {
+			for (Provider provider : providers) {
+				Security.addProvider(provider);
+			}
 		}
 	}
 
@@ -410,7 +602,7 @@ public class FileUtilsSaveManifestTest {
 
 	private static class LocalTestFiles implements Files {
 
-		private final File root;
+		protected final File root;
 
 		private LocalTestFiles( File root ) {
 			this.root = root;
@@ -493,6 +685,33 @@ public class FileUtilsSaveManifestTest {
 		@Override
 		public FileHandle local( String path ) {
 			throw new GdxRuntimeException("manifest update failed");
+		}
+	}
+
+	private static class ManifestWriteFailingFiles extends LocalTestFiles {
+
+		private ManifestWriteFailingFiles( File root ) {
+			super(root);
+		}
+
+		@Override
+		public FileHandle local( String path ) {
+			if (MANIFEST.equals(path)) {
+				return new WriteFailingFileHandle(new File(root, path));
+			}
+			return super.local(path);
+		}
+	}
+
+	private static class WriteFailingFileHandle extends FileHandle {
+
+		private WriteFailingFileHandle( File file ) {
+			super(file);
+		}
+
+		@Override
+		public java.io.OutputStream write( boolean append ) {
+			throw new GdxRuntimeException("manifest write failed");
 		}
 	}
 

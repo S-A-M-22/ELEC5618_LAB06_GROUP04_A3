@@ -21,6 +21,11 @@
 
 package com.watabou.utils;
 
+import com.badlogic.gdx.Files;
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Application;
+import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.utils.GdxRuntimeException;
 import com.watabou.noosa.Game;
 
 import org.junit.After;
@@ -35,6 +40,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.HashSet;
 
@@ -49,11 +55,15 @@ public class CrashReportWriterTest {
 	public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
 	private LocalStore store;
+	private Files previousFiles;
+	private Application previousApp;
 
 	@Before
 	public void setUp() throws IOException {
 		Game.version = "test-version";
 		Game.versionCode = 123;
+		previousFiles = Gdx.files;
+		previousApp = Gdx.app;
 		store = new LocalStore(temporaryFolder.newFolder("crash-reports"));
 		CrashReportWriter.setStoreForTesting(store);
 	}
@@ -61,6 +71,8 @@ public class CrashReportWriterTest {
 	@After
 	public void tearDown() {
 		CrashReportWriter.resetForTesting();
+		Gdx.files = previousFiles;
+		Gdx.app = previousApp;
 	}
 
 	@Test
@@ -150,15 +162,140 @@ public class CrashReportWriterTest {
 	}
 
 	@Test
-	public void gameReportExceptionPersistsHandledReport() throws IOException {
-		Game.reportException(new RuntimeException("from game"));
+	public void nullConfigurationAndReentrantWriteReturnNull() throws IOException {
+		CrashReportWriter.configure(null, "unused");
+		assertNull(CrashReportWriter.writeReport(new RuntimeException("disabled"), null));
+
+		CrashReportWriter.setStoreForTesting(new ReentrantStore(temporaryFolder.newFolder("reentrant-store")));
+		assertNotNull(CrashReportWriter.writeReport(
+				new RuntimeException("outer"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION));
+	}
+
+	@Test
+	public void writeReportReturnsNullWhenAllCandidateNamesAlreadyExist() {
+		CrashReportWriter.setStoreForTesting(new AlwaysExistsStore());
+
+		assertNull(CrashReportWriter.writeReport(
+				new RuntimeException("collision"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION));
+	}
+
+	@Test
+	public void runtimeFailureFromStoreReturnsNull() {
+		CrashReportWriter.setStoreForTesting(new RuntimeFailingStore());
+
+		assertNull(CrashReportWriter.writeReport(
+				new RuntimeException("runtime failure"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION));
+	}
+
+	@Test
+	public void gdxConfiguredStoreWritesToCrashReportDirectory() throws IOException {
+		File root = temporaryFolder.newFolder("gdx-store");
+		Gdx.files = new LocalFiles(root);
+		CrashReportWriter.configure(Files.FileType.Local, null);
+
+		String fileName = CrashReportWriter.writeReport(
+				new RuntimeException("via gdx store"),
+				null);
+
+		assertNotNull(fileName);
+		String report = new String(java.nio.file.Files.readAllBytes(
+				new File(new File(root, "crash-reports"), fileName).toPath()), StandardCharsets.UTF_8);
+		assertTrue(report.contains("Report Type: HANDLED_EXCEPTION"));
+		assertTrue(report.contains("Exception Message: via gdx store"));
+	}
+
+	@Test
+	public void gdxConfiguredStoreRejectsReportDirectoryThatIsAFile() throws IOException {
+		File root = temporaryFolder.newFolder("gdx-store-file-conflict");
+		assertTrue(new File(root, "crash-reports").createNewFile());
+		Gdx.files = new LocalFiles(root);
+		CrashReportWriter.configure(Files.FileType.Local, "");
+
+		assertNull(CrashReportWriter.writeReport(
+				new RuntimeException("file conflict"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION));
+	}
+
+	@Test
+	public void gdxConfiguredStoreHandlesDirectoryCreationWriteMoveDeleteAndExistsFailures() throws IOException {
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.DIR_CANNOT_BE_CREATED);
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.WRITE_THROWS);
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.FINAL_ALREADY_EXISTS);
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.FINAL_MISSING_AFTER_MOVE);
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.MOVE_THROWS);
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.EXISTS_THROWS);
+	}
+
+	@Test
+	public void platformLookupFailureFallsBackToUnknown() throws IOException {
+		Gdx.app = (Application) Proxy.newProxyInstance(
+				Application.class.getClassLoader(),
+				new Class[]{Application.class},
+				(proxy, method, args) -> {
+					if ("getType".equals(method.getName())) {
+						throw new RuntimeException("no platform");
+					}
+					return defaultValue(method.getReturnType());
+				});
+
+		String fileName = CrashReportWriter.writeReport(
+				new RuntimeException("platform fallback"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION);
+
+		assertTrue(store.read(fileName).contains("Platform: unknown"));
+	}
+
+	@Test
+	public void unknownVersionAndNullTypeUseFallbackReportValues() throws IOException {
+		Game.version = null;
+
+		String fileName = CrashReportWriter.writeReport(
+				new RuntimeException("fallback values"),
+				null);
+
+		String report = store.read(fileName);
+		assertTrue(report.contains("Report Type: HANDLED_EXCEPTION"));
+		assertTrue(report.contains("Version: unknown"));
+	}
+
+	private void assertGdxStoreWriteReturnsNull( ScriptedFiles.Mode mode ) throws IOException {
+		File root = temporaryFolder.newFolder("scripted-" + mode.name());
+		Gdx.files = new ScriptedFiles(root, mode);
+		CrashReportWriter.configure(Files.FileType.Local, "");
+
+		assertNull(CrashReportWriter.writeReport(
+				new RuntimeException(mode.name()),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION));
+	}
+
+	private static Object defaultValue( Class<?> type ) {
+		if (!type.isPrimitive()) {
+			return null;
+		}
+		if (type == Boolean.TYPE) {
+			return false;
+		}
+		if (type == Character.TYPE) {
+			return '\0';
+		}
+		return 0;
+	}
+
+	@Test
+	public void writeReportPersistsHandledReportThroughWriter() throws IOException {
+		CrashReportWriter.writeReport(
+				new RuntimeException("from writer"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION);
 
 		File[] reports = store.dir.listFiles();
 		assertNotNull(reports);
 		assertEquals(1, reports.length);
 		String report = new String(java.nio.file.Files.readAllBytes(reports[0].toPath()), StandardCharsets.UTF_8);
 		assertTrue(report.contains("Report Type: HANDLED_EXCEPTION"));
-		assertTrue(report.contains("Exception Message: from game"));
+		assertTrue(report.contains("Exception Message: from writer"));
 	}
 
 	private static class LocalStore implements CrashReportWriter.ReportStore {
@@ -208,6 +345,44 @@ public class CrashReportWriterTest {
 		}
 	}
 
+	private static class ReentrantStore extends LocalStore {
+
+		private ReentrantStore( File dir ) {
+			super(dir);
+		}
+
+		@Override
+		public void ensureDirectory() {
+			assertNull(CrashReportWriter.writeReport(
+					new RuntimeException("nested"),
+					CrashReportWriter.ReportType.HANDLED_EXCEPTION));
+		}
+	}
+
+	private static class AlwaysExistsStore extends LocalStore {
+
+		private AlwaysExistsStore() {
+			super(new File("."));
+		}
+
+		@Override
+		public boolean exists( String finalName ) {
+			return true;
+		}
+	}
+
+	private static class RuntimeFailingStore extends LocalStore {
+
+		private RuntimeFailingStore() {
+			super(new File("."));
+		}
+
+		@Override
+		public void ensureDirectory() {
+			throw new RuntimeException("boom");
+		}
+	}
+
 	private static class FailingStore implements CrashReportWriter.ReportStore {
 
 		private final boolean failEnsure;
@@ -253,6 +428,162 @@ public class CrashReportWriterTest {
 		@Override
 		public boolean exists( String finalName ) {
 			return false;
+		}
+	}
+
+	private static class LocalFiles implements Files {
+
+		protected final File root;
+
+		private LocalFiles( File root ) {
+			this.root = root;
+		}
+
+		@Override
+		public FileHandle getFileHandle( String path, FileType type ) {
+			return local(path);
+		}
+
+		@Override
+		public FileHandle classpath( String path ) {
+			return local(path);
+		}
+
+		@Override
+		public FileHandle internal( String path ) {
+			return local(path);
+		}
+
+		@Override
+		public FileHandle external( String path ) {
+			return local(path);
+		}
+
+		@Override
+		public FileHandle absolute( String path ) {
+			return new FileHandle(new File(path));
+		}
+
+		@Override
+		public FileHandle local( String path ) {
+			return new FileHandle(new File(root, path));
+		}
+
+		@Override
+		public String getExternalStoragePath() {
+			return root.getAbsolutePath();
+		}
+
+		@Override
+		public boolean isExternalStorageAvailable() {
+			return true;
+		}
+
+		@Override
+		public String getLocalStoragePath() {
+			return root.getAbsolutePath();
+		}
+
+		@Override
+		public boolean isLocalStorageAvailable() {
+			return true;
+		}
+	}
+
+	private static class ScriptedFiles extends LocalFiles {
+
+		private enum Mode {
+			DIR_CANNOT_BE_CREATED,
+			WRITE_THROWS,
+			FINAL_ALREADY_EXISTS,
+			FINAL_MISSING_AFTER_MOVE,
+			MOVE_THROWS,
+			EXISTS_THROWS
+		}
+
+		private final Mode mode;
+
+		private ScriptedFiles( File root, Mode mode ) {
+			super(root);
+			this.mode = mode;
+		}
+
+		@Override
+		public FileHandle local( String path ) {
+			return new ScriptedHandle(new File(root, path), path, mode);
+		}
+	}
+
+	private static class ScriptedHandle extends FileHandle {
+
+		private final String logicalPath;
+		private final ScriptedFiles.Mode mode;
+
+		private ScriptedHandle( File file, String logicalPath, ScriptedFiles.Mode mode ) {
+			super(file);
+			this.logicalPath = logicalPath;
+			this.mode = mode;
+		}
+
+		@Override
+		public FileHandle child( String name ) {
+			String childPath = logicalPath.length() == 0 ? name : logicalPath + "/" + name;
+			return new ScriptedHandle(new File(file(), name), childPath, mode);
+		}
+
+		@Override
+		public boolean exists() {
+			if (mode == ScriptedFiles.Mode.DIR_CANNOT_BE_CREATED && "crash-reports".equals(logicalPath)) {
+				return false;
+			}
+			if (mode == ScriptedFiles.Mode.FINAL_ALREADY_EXISTS && logicalPath.endsWith(".txt")) {
+				return true;
+			}
+			if (mode == ScriptedFiles.Mode.FINAL_MISSING_AFTER_MOVE && logicalPath.endsWith(".txt")) {
+				return false;
+			}
+			if (mode == ScriptedFiles.Mode.EXISTS_THROWS && logicalPath.endsWith(".txt")) {
+				throw new GdxRuntimeException("exists failed");
+			}
+			return super.exists();
+		}
+
+		@Override
+		public boolean isDirectory() {
+			return "crash-reports".equals(logicalPath) || super.isDirectory();
+		}
+
+		@Override
+		public void mkdirs() {
+			if (mode != ScriptedFiles.Mode.DIR_CANNOT_BE_CREATED) {
+				super.mkdirs();
+			}
+		}
+
+		@Override
+		public OutputStream write( boolean append ) {
+			if (mode == ScriptedFiles.Mode.WRITE_THROWS && logicalPath.endsWith(".tmp")) {
+				throw new GdxRuntimeException("write failed");
+			}
+			return new java.io.ByteArrayOutputStream();
+		}
+
+		@Override
+		public void moveTo( FileHandle dest ) {
+			if (mode == ScriptedFiles.Mode.MOVE_THROWS) {
+				throw new GdxRuntimeException("move failed");
+			}
+			if (mode != ScriptedFiles.Mode.FINAL_MISSING_AFTER_MOVE) {
+				super.moveTo(dest);
+			}
+		}
+
+		@Override
+		public boolean delete() {
+			if (mode == ScriptedFiles.Mode.WRITE_THROWS && logicalPath.endsWith(".tmp")) {
+				throw new GdxRuntimeException("delete failed");
+			}
+			return super.delete();
 		}
 	}
 

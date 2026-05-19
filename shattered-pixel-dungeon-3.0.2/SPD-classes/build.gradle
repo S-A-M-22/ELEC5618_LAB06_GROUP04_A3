@@ -1,4 +1,5 @@
 apply plugin: 'java-library'
+apply plugin: 'jacoco'
 
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
 sourceCompatibility = targetCompatibility = appJavaCompatibility
@@ -12,4 +13,53 @@ dependencies {
     implementation "org.json:json:20170516"
 
     testImplementation "junit:junit:4.13.2"
+}
+
+configurations {
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+sourceSets {
+    integrationTest {
+        java.srcDir file('src/integrationTest/java')
+        resources.srcDir file('src/integrationTest/resources')
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+task integrationTest(type: Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    shouldRunAfter test
+}
+
+jacoco {
+    toolVersion = '0.8.11'
+}
+
+jacocoTestReport {
+    dependsOn test, integrationTest
+    executionData fileTree(buildDir).include(
+            'jacoco/test.exec',
+            'jacoco/integrationTest.exec'
+    )
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = true
+    }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, includes: [
+                    'com/watabou/utils/Bundle*.class',
+                    'com/watabou/utils/CrashReportWriter*.class',
+                    'com/watabou/utils/FileUtils*.class',
+                    'com/watabou/utils/GameSettings*.class'
+            ])
+        }))
+    }
 }
