@@ -51,6 +51,7 @@ public class FileUtils {
 	private static final int CURRENT_MANIFEST_VERSION = 1;
 	private static final String CHECKSUM_PREFIX = "sha256:";
 	private static final int CHECKSUM_BUFFER = 1024*4;
+	private static final String NORMALIZED_GAME_DIR = "game*";
 	private static boolean updatingManifest = false;
 	
 	public static void setDefaultFileProperties( Files.FileType type, String path ){
@@ -309,32 +310,47 @@ public class FileUtils {
 		}
 
 		String actual = manifestOverallChecksum(manifestEntries());
-		if (!expected.equals(actual)) {
-			throw new IOException("save manifest checksum mismatch");
+		if (expected.equals(actual)) {
+			return;
+		}
+
+		ArrayList<ManifestEntry> storedEntries = manifestEntriesFromManifest(manifest, false);
+		if (!expected.equals(manifestOverallChecksum(storedEntries))) {
+			throw new IOException("save manifest is invalid");
+		}
+
+		if (!manifestOverallChecksum(manifestEntriesFromManifest(manifest, true)).equals(actual)) {
+			String legacyActual = manifestOverallChecksum(legacyManifestEntries());
+			if (!manifestOverallChecksum(manifestEntriesFromManifest(manifest, true)).equals(legacyActual)) {
+				throw new IOException("save manifest checksum mismatch");
+			}
 		}
 	}
 
 	private static ArrayList<ManifestEntry> manifestEntries() throws IOException {
 		ArrayList<ManifestEntry> entries = new ArrayList<>();
-		collectManifestFiles(getFileHandle(""), "", entries);
-		Collections.sort(entries, new Comparator<ManifestEntry>() {
-			@Override
-			public int compare( ManifestEntry a, ManifestEntry b ) {
-				return a.path.compareTo(b.path);
-			}
-		});
+		collectManifestFiles(getFileHandle(""), "", entries, false);
+		sortManifestEntries(entries);
 		return entries;
 	}
 
-	private static void collectManifestFiles( FileHandle dir, String dirName, ArrayList<ManifestEntry> entries ) throws IOException {
+	private static ArrayList<ManifestEntry> legacyManifestEntries() throws IOException {
+		ArrayList<ManifestEntry> entries = new ArrayList<>();
+		collectManifestFiles(getFileHandle(""), "", entries, true);
+		sortManifestEntries(entries);
+		return entries;
+	}
+
+	private static void collectManifestFiles( FileHandle dir, String dirName, ArrayList<ManifestEntry> entries, boolean legacyBundleChecksums ) throws IOException {
 		for (FileHandle file : dir.list()) {
 			String relative = dirName.length() == 0 ? file.name() : dirName + "/" + file.name();
 			if (file.isDirectory()) {
 				if (isActiveGameDir(relative)) {
-					collectManifestFiles(file, relative, entries);
+					collectManifestFiles(file, relative, entries, legacyBundleChecksums);
 				}
 			} else if (isManifestProtectedFile(relative)) {
-				entries.add(new ManifestEntry(relative, manifestFileChecksum(relative, file)));
+				entries.add(new ManifestEntry(normalizeManifestPath(relative),
+						legacyBundleChecksums ? legacyManifestFileChecksum(relative, file) : manifestFileChecksum(file)));
 			}
 		}
 	}
@@ -367,7 +383,47 @@ public class FileUtils {
 		return true;
 	}
 
-	private static String manifestFileChecksum( String relative, FileHandle file ) throws IOException {
+	private static String normalizeManifestPath( String relative ) {
+		int slash = relative.indexOf('/');
+		if (slash != -1 && isActiveGameDir(relative.substring(0, slash))) {
+			return NORMALIZED_GAME_DIR + relative.substring(slash);
+		}
+		return relative;
+	}
+
+	private static ArrayList<ManifestEntry> manifestEntriesFromManifest( Bundle manifest, boolean normalizeGameDirs ) throws IOException {
+		String[] paths = manifest.getStringArray(MANIFEST_PATHS);
+		String[] checksums = manifest.getStringArray(MANIFEST_CHECKSUMS);
+		if (paths == null || checksums == null || paths.length != checksums.length) {
+			throw new IOException("save manifest is invalid");
+		}
+
+		ArrayList<ManifestEntry> entries = new ArrayList<>();
+		for (int i = 0; i < paths.length; i++) {
+			entries.add(new ManifestEntry(normalizeGameDirs ? normalizeManifestPath(paths[i]) : paths[i], checksums[i]));
+		}
+		sortManifestEntries(entries);
+		return entries;
+	}
+
+	private static void sortManifestEntries( ArrayList<ManifestEntry> entries ) {
+		Collections.sort(entries, new Comparator<ManifestEntry>() {
+			@Override
+			public int compare( ManifestEntry a, ManifestEntry b ) {
+				int pathCompare = a.path.compareTo(b.path);
+				if (pathCompare != 0) {
+					return pathCompare;
+				}
+				return a.checksum.compareTo(b.checksum);
+			}
+		});
+	}
+
+	private static String manifestFileChecksum( FileHandle file ) throws IOException {
+		return "bytes:" + fileChecksum(file);
+	}
+
+	private static String legacyManifestFileChecksum( String relative, FileHandle file ) throws IOException {
 		if (relative.endsWith(".dat") && file.length() > 1) {
 			String bundleChecksum = Bundle.readChecksum(file.read());
 			if (bundleChecksum != null) {

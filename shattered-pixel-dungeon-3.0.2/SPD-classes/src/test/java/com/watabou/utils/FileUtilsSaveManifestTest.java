@@ -35,14 +35,17 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.RandomAccessFile;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -88,8 +91,8 @@ public class FileUtilsSaveManifestTest {
 
 		Bundle manifest = FileUtils.bundleFromFile(MANIFEST);
 		assertEquals(1, manifest.getInt("version"));
-		assertArrayEquals(new String[]{"game1/game.dat"}, manifest.getStringArray("paths"));
-		assertTrue(manifest.getStringArray("checksums")[0].startsWith("bundle:sha256:"));
+		assertArrayEquals(new String[]{"game*/game.dat"}, manifest.getStringArray("paths"));
+		assertTrue(manifest.getStringArray("checksums")[0].startsWith("bytes:sha256:"));
 		assertTrue(manifest.getString("overall_checksum").startsWith("sha256:"));
 		assertEquals(1, FileUtils.bundleFromFile("game1/game.dat").getInt("depth"));
 
@@ -128,13 +131,75 @@ public class FileUtilsSaveManifestTest {
 
 		Bundle manifest = FileUtils.bundleFromFile(MANIFEST);
 		assertArrayEquals(new String[]{
-				"game1/depth1.dat",
+				"game*/depth1.dat",
 				"rankings.dat",
 				GameSettings.DEFAULT_PREFS_FILE
 		}, manifest.getStringArray("paths"));
-		assertTrue(manifest.getStringArray("checksums")[0].startsWith("bundle:sha256:"));
+		assertTrue(manifest.getStringArray("checksums")[0].startsWith("bytes:sha256:"));
 		assertTrue(manifest.getStringArray("checksums")[1].startsWith("bytes:sha256:"));
 		assertTrue(manifest.getStringArray("checksums")[2].startsWith("bytes:sha256:"));
+	}
+
+	@Test
+	public void randomByteFlipsInAllGameSaveFilesAreRejected() throws IOException {
+		String[] gameSaveFiles = {
+				"game1/game.dat",
+				"game1/depth1.dat",
+				"game1/depth2-branch1.dat"
+		};
+
+		for (int i = 0; i < gameSaveFiles.length; i++) {
+			useFreshRoot("byte-flip-" + i);
+			writeGameSaveSet();
+
+			flipRandomByte(gameSaveFiles[i]);
+
+			assertBundleRejected(gameSaveFiles[i]);
+		}
+	}
+
+	@Test
+	public void renamingGameRootFolderKeepsManifestValid() throws IOException {
+		writeGameSaveSet();
+
+		assertTrue(file("game1").renameTo(file("game2")));
+
+		assertEquals(1, FileUtils.bundleFromFile("game2/game.dat").getInt("depth"));
+		assertEquals(2, FileUtils.bundleFromFile("game2/depth1.dat").getInt("depth"));
+		assertEquals(3, FileUtils.bundleFromFile("game2/depth2-branch1.dat").getInt("depth"));
+	}
+
+	@Test
+	public void renamingProtectedGameSaveFileIsRejected() throws IOException {
+		mkdirs("game1");
+		FileUtils.bundleToFile("game1/game.dat", bundle("depth", 1));
+
+		assertTrue(file("game1/game.dat").renameTo(file("game1/depth1.dat")));
+
+		assertBundleRejected("game1/depth1.dat");
+	}
+
+	@Test
+	public void movingRootSaveFileIntoGameFolderIsRejected() throws IOException {
+		mkdirs("game1");
+		FileUtils.bundleToFile("rankings.dat", bundle("score", 10));
+
+		assertTrue(file("rankings.dat").renameTo(file("game1/game.dat")));
+
+		assertBundleRejected("game1/game.dat");
+	}
+
+	@Test
+	public void blindJsonValueEditWithStaleChecksumIsRejected() throws IOException {
+		mkdirs("game1");
+		writeSignedBundle("game1/game.dat", bundle("gold", 50), false);
+		FileUtils.updateSaveManifest();
+
+		String json = readText("game1/game.dat");
+		assertTrue(json.contains("\"gold\":50"));
+		writeText("game1/game.dat", json.replace("\"gold\":50", "\"gold\":99"));
+
+		assertBundleRejected("game1/game.dat");
 	}
 
 	@Test
@@ -239,6 +304,19 @@ public class FileUtilsSaveManifestTest {
 		assertTrue(file(relative).mkdirs());
 	}
 
+	private void useFreshRoot( String name ) throws IOException {
+		root = temporaryFolder.newFolder(name);
+		Gdx.files = new LocalTestFiles(root);
+		FileUtils.setDefaultFileProperties(Files.FileType.Local, "");
+	}
+
+	private void writeGameSaveSet() throws IOException {
+		mkdirs("game1");
+		FileUtils.bundleToFile("game1/game.dat", bundle("depth", 1));
+		FileUtils.bundleToFile("game1/depth1.dat", bundle("depth", 2));
+		FileUtils.bundleToFile("game1/depth2-branch1.dat", bundle("depth", 3));
+	}
+
 	private File file( String relative ) {
 		return new File(root, relative);
 	}
@@ -260,20 +338,73 @@ public class FileUtilsSaveManifestTest {
 		}
 	}
 
+	private String readText( String relative ) throws IOException {
+		FileInputStream input = new FileInputStream(file(relative));
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		try {
+			byte[] buffer = new byte[1024];
+			int read;
+			while ((read = input.read(buffer)) != -1) {
+				output.write(buffer, 0, read);
+			}
+		} finally {
+			input.close();
+		}
+		return output.toString("UTF-8");
+	}
+
 	private void writeSignedBundle( String relative, Bundle bundle ) throws IOException {
-		writeSignedBundle(file(relative), bundle);
+		writeSignedBundle(file(relative), bundle, true);
+	}
+
+	private void writeSignedBundle( String relative, Bundle bundle, boolean compressed ) throws IOException {
+		writeSignedBundle(file(relative), bundle, compressed);
 	}
 
 	private void writeSignedBundle( File file, Bundle bundle ) throws IOException {
+		writeSignedBundle(file, bundle, true);
+	}
+
+	private void writeSignedBundle( File file, Bundle bundle, boolean compressed ) throws IOException {
 		File parent = file.getParentFile();
 		if (parent != null) {
 			assertTrue(parent.exists() || parent.mkdirs());
 		}
 		FileOutputStream output = new FileOutputStream(file);
 		try {
-			assertTrue(Bundle.write(bundle, output));
+			assertTrue(Bundle.write(bundle, output, compressed));
 		} finally {
 			output.close();
+		}
+	}
+
+	private void flipRandomByte( String relative ) throws IOException {
+		RandomAccessFile target = new RandomAccessFile(file(relative), "rw");
+		try {
+			long length = target.length();
+			assertTrue(length > 0 && length <= Integer.MAX_VALUE);
+			int position = new Random(0x5618L + relative.hashCode()).nextInt((int)length);
+			target.seek(position);
+			int original = target.read();
+			target.seek(position);
+			target.write(original ^ 0x01);
+		} finally {
+			target.close();
+		}
+	}
+
+	private void assertBundleRejected( String relative ) {
+		PrintStream originalErr = System.err;
+		try {
+			System.setErr(new PrintStream(new ByteArrayOutputStream()));
+			try {
+				FileUtils.bundleFromFile(relative);
+				fail("Expected save manifest or bundle checksum to reject " + relative);
+			} catch (IOException expected) {
+				// expected
+			}
+		} finally {
+			System.setErr(originalErr);
 		}
 	}
 
