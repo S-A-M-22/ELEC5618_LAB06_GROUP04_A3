@@ -134,12 +134,45 @@ public abstract class Mob extends Char {
 	protected boolean firstAdded = true;
 	protected void onAdd(){
 		if (firstAdded) {
+			//Mob Behaviour Logging: record first-time spawn (skipped on save-restore)
+			MobBehaviourLogger.getInstance().logSpawn(id(), name(), pos);
 			//modify health for ascension challenge if applicable, only on first add
 			float percent = HP / (float) HT;
 			HT = Math.round(HT * AscensionChallenge.statModifier(this));
 			HP = Math.round(HT * percent);
 			firstAdded = false;
 		}
+	}
+
+	// --- Mob Behaviour Logging helpers (ELEC5618 A3 predefined improvement #5) ---
+	// These thin wrappers replace every `state = ...`, `enemy = ...`, and
+	// `alerted = true` site outside of save/restore. They preserve game state
+	// 1:1 and additionally emit an observational log entry. The early-return
+	// branches make logging a no-op when nothing actually changed.
+
+	// Package-private (not public) so tests in the same package can invoke them
+	// directly. They are still "internal" — not part of the documented Mob API.
+
+	void setState(AiState newState, String reason) {
+		if (this.state == newState) return;
+		String from = this.state == null ? "null" : this.state.getClass().getSimpleName();
+		String to   = newState   == null ? "null" : newState.getClass().getSimpleName();
+		this.state = newState;
+		MobBehaviourLogger.getInstance().logStateChange(id(), name(), pos, from, to);
+	}
+
+	void setEnemy(Char newEnemy, String reason) {
+		if (this.enemy == newEnemy) return;
+		this.enemy = newEnemy;
+		String targetName = newEnemy == null ? "<none>" : newEnemy.name();
+		int    targetId   = newEnemy == null ? -1       : newEnemy.id();
+		MobBehaviourLogger.getInstance().logTarget(id(), name(), pos, targetName, targetId);
+	}
+
+	void markAlerted(String trigger) {
+		if (alerted) return;
+		alerted = true;
+		MobBehaviourLogger.getInstance().logAlert(id(), name(), pos, trigger);
 	}
 
 	private static final String STATE	= "state";
@@ -237,10 +270,10 @@ public abstract class Mob extends Char {
 		}
 
 		if (buff(Terror.class) != null || buff(Dread.class) != null ){
-			state = FLEEING;
+			setState(FLEEING, "terror/dread in act()");
 		}
-		
-		enemy = chooseEnemy();
+
+		setEnemy(chooseEnemy(), "act tick");
 		
 		boolean enemyInFOV = enemy != null && enemy.isAlive() && fieldOfView[enemy.pos] && enemy.invisible <= 0;
 
@@ -286,13 +319,13 @@ public abstract class Mob extends Char {
 		//if we are an alert enemy, auto-hunt a target that is affected by aggression, even another enemy
 		if ((alignment == Alignment.ENEMY || buff(Amok.class) != null ) && state != PASSIVE && state != SLEEPING) {
 			if (enemy != null && enemy.buff(StoneOfAggression.Aggression.class) != null){
-				state = HUNTING;
+				setState(HUNTING, "aggression buff on current enemy");
 				return enemy;
 			}
 			for (Char ch : Actor.chars()) {
 				if (ch != this && fieldOfView[ch.pos] &&
 						ch.buff(StoneOfAggression.Aggression.class) != null) {
-					state = HUNTING;
+					setState(HUNTING, "aggression buff on visible char");
 					return ch;
 				}
 			}
@@ -438,11 +471,11 @@ public abstract class Mob extends Char {
 	public boolean add( Buff buff ) {
 		if (super.add( buff )) {
 			if (buff instanceof Amok || buff instanceof AllyBuff) {
-				state = HUNTING;
+				setState(HUNTING, "Amok/AllyBuff added");
 			} else if (buff instanceof Terror || buff instanceof Dread) {
-				state = FLEEING;
+				setState(FLEEING, "Terror/Dread added");
 			} else if (buff instanceof Sleep) {
-				state = SLEEPING;
+				setState(SLEEPING, "Sleep added");
 				postpone(Sleep.SWS);
 			}
 			return true;
@@ -457,9 +490,9 @@ public abstract class Mob extends Char {
 					|| (buff instanceof Dread && buff(Terror.class) == null))) {
 				if (enemySeen) {
 					sprite.showStatus(CharSprite.WARNING, Messages.get(this, "rage"));
-					state = HUNTING;
+					setState(HUNTING, "fear removed, enemy seen");
 				} else {
-					state = WANDERING;
+					setState(WANDERING, "fear removed, no enemy seen");
 				}
 			}
 			return true;
@@ -777,16 +810,16 @@ public abstract class Mob extends Char {
 	}
 
 	public void aggro( Char ch ) {
-		enemy = ch;
+		setEnemy(ch, "aggro");
 		if (state != PASSIVE){
-			state = HUNTING;
+			setState(HUNTING, "aggroed");
 		}
 	}
 
 	public void clearEnemy(){
-		enemy = null;
+		setEnemy(null, "clearEnemy");
 		enemySeen = false;
-		if (state == HUNTING) state = WANDERING;
+		if (state == HUNTING) setState(WANDERING, "enemy cleared");
 	}
 	
 	public boolean isTargeting( Char ch){
@@ -798,11 +831,11 @@ public abstract class Mob extends Char {
 
 		if (!isInvulnerable(src.getClass())) {
 			if (state == SLEEPING) {
-				state = WANDERING;
+				setState(WANDERING, "damaged while sleeping");
 			}
 			if (!(src instanceof Corruption) && state != FLEEING) {
 				if (state != HUNTING) {
-					alerted = true;
+					markAlerted("damage taken");
 					//assume the hero is hitting us in these common cases
 					if (src instanceof Wand || src instanceof ClericSpell || src instanceof ArmorAbility) {
 						aggro(Dungeon.hero);
@@ -1016,11 +1049,11 @@ public abstract class Mob extends Char {
 	}
 	
 	public void beckon( int cell ) {
-		
+
 		notice();
-		
+
 		if (state != HUNTING && state != FLEEING) {
-			state = WANDERING;
+			setState(WANDERING, "beckoned");
 		}
 		target = cell;
 	}
@@ -1121,11 +1154,11 @@ public abstract class Mob extends Char {
 			if (enemyInFOV) {
 				enemySeen = true;
 				notice();
-				state = HUNTING;
+				setState(HUNTING, "sleep awaken, enemy in FOV");
 				target = enemy.pos;
 			} else {
 				notice();
-				state = WANDERING;
+				setState(WANDERING, "sleep awaken, no enemy in FOV");
 				target = Dungeon.level.randomDestination( Mob.this );
 			}
 
@@ -1161,10 +1194,10 @@ public abstract class Mob extends Char {
 		
 		protected boolean noticeEnemy(){
 			enemySeen = true;
-			
+
 			notice();
-			alerted = true;
-			state = HUNTING;
+			markAlerted("noticeEnemy");
+			setState(HUNTING, "enemy noticed while wandering");
 			target = enemy.pos;
 			
 			if (alignment == Alignment.ENEMY && Dungeon.isChallenged( Challenges.SWARM_INTELLIGENCE )) {
@@ -1229,7 +1262,7 @@ public abstract class Mob extends Char {
 					for (Char ch : recentlyAttackedBy){
 						if (ch != null && ch.isActive() && Actor.chars().contains(ch) && alignment != ch.alignment && fieldOfView[ch.pos] && ch.invisible == 0 && !isCharmedBy(ch)) {
 							if (canAttack(ch) || enemy == null || Dungeon.level.distance(pos, ch.pos) < Dungeon.level.distance(pos, enemy.pos)) {
-								enemy = ch;
+								setEnemy(ch, "Hunting target-switch from recentlyAttackedBy");
 								target = ch.pos;
 								enemyInFOV = true;
 								swapped = true;
@@ -1246,7 +1279,7 @@ public abstract class Mob extends Char {
 					target = enemy.pos;
 				} else if (enemy == null) {
 					sprite.showLost();
-					state = WANDERING;
+					setState(WANDERING, "no enemy while Hunting");
 					target = ((Mob.Wandering)WANDERING).randomDestination();
 					spend( TICK );
 					return true;
@@ -1264,8 +1297,8 @@ public abstract class Mob extends Char {
 					//unless we have already done that and still can't move toward them, then move on.
 					if (!recursing) {
 						Char oldEnemy = enemy;
-						enemy = null;
-						enemy = chooseEnemy();
+						setEnemy(null, "Hunting recurse: clear before re-pick");
+						setEnemy(chooseEnemy(), "Hunting recurse: re-pick");
 						if (enemy != null && enemy != oldEnemy) {
 							recursing = true;
 							boolean result = act(enemyInFOV, justAlerted);
@@ -1277,7 +1310,7 @@ public abstract class Mob extends Char {
 					spend( TICK );
 					if (!enemyInFOV) {
 						sprite.showLost();
-						state = WANDERING;
+						setState(WANDERING, "can't reach enemy in Hunting");
 						target = ((Mob.Wandering)WANDERING).randomDestination();
 					}
 					return true;
@@ -1330,9 +1363,9 @@ public abstract class Mob extends Char {
 			if (buff( Terror.class ) == null && buff( Dread.class ) == null) {
 				if (enemySeen) {
 					sprite.showStatus(CharSprite.WARNING, Messages.get(Mob.class, "rage"));
-					state = HUNTING;
+					setState(HUNTING, "nowhereToRun, enemy seen");
 				} else {
-					state = WANDERING;
+					setState(WANDERING, "nowhereToRun, no enemy seen");
 				}
 			}
 		}
