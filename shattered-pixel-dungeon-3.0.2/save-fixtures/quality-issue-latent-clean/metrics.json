@@ -1,0 +1,481 @@
+{
+  "slots": {
+    "game1": {
+      "copied_game_dat": {
+        "bytes": 1077,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/copy/game1/game.dat",
+        "sha256": "92ddf2c131974f8508bcb0b9eb26b59631c63eb8f4290428e448469d70b28693"
+      },
+      "copy_matches_regular": true,
+      "custom_seed": "UP-FLOOR-0-DOWN-MISSING-D2",
+      "modified_game_dat": {
+        "bytes": 1081,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/modified/game1/game.dat",
+        "sha256": "1e1d4b86546cff6998ca188d85b4d640ece53b7d9210e0fbca33d0fd5f2a188e"
+      },
+      "name": "missing_generated_depth",
+      "quality_issue_deltas": {
+        "generated_level_files": {
+          "missing_generated_files": [
+            "depth2.dat"
+          ],
+          "modified_generated_levels": [
+            1,
+            2
+          ],
+          "regular_generated_levels": [
+            1
+          ]
+        },
+        "initial_load_depth": {
+          "current_depth_file_exists": true,
+          "modified": 1,
+          "regular": 1
+        },
+        "transition_data": {
+          "level_locked": false,
+          "transitions": [
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 12,
+              "dest_branch": 0,
+              "dest_depth": 0,
+              "dest_type": "REGULAR_EXIT",
+              "left": 2,
+              "right": 2,
+              "top": 2,
+              "type": "REGULAR_ENTRANCE"
+            },
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 13,
+              "dest_branch": 0,
+              "dest_depth": 2,
+              "dest_type": "REGULAR_ENTRANCE",
+              "left": 3,
+              "right": 3,
+              "top": 2,
+              "type": "REGULAR_EXIT"
+            }
+          ]
+        },
+        "visible_hero_state": {
+          "armor_present": {
+            "modified": true,
+            "regular": true
+          },
+          "hp": {
+            "modified": 20,
+            "regular": 20
+          },
+          "strength": {
+            "modified": 10,
+            "regular": 10
+          }
+        }
+      },
+      "regular_game_dat": {
+        "bytes": 1077,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/regular/game1/game.dat",
+        "sha256": "92ddf2c131974f8508bcb0b9eb26b59631c63eb8f4290428e448469d70b28693"
+      },
+      "summary": "Depth 2 is marked as generated, but `depth2.dat` is absent. Descending crashes later.",
+      "title": "Missing generated depth file"
+    },
+    "game2": {
+      "copied_game_dat": {
+        "bytes": 1077,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/copy/game2/game.dat",
+        "sha256": "4b715cd4a740ba40efcbf128dc17706149dd7f602ed0de40c41fea8377a5f3f5"
+      },
+      "copy_matches_regular": true,
+      "custom_seed": "DOWN-RELOADS-FLOOR-1",
+      "modified_game_dat": {
+        "bytes": 1074,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/modified/game2/game.dat",
+        "sha256": "678b2aa8549f502e366be5f5f72e79ac580fb93773fd158e8f995bba478ed65e"
+      },
+      "name": "same_floor_loop",
+      "quality_issue_deltas": {
+        "generated_level_files": {
+          "missing_generated_files": [],
+          "modified_generated_levels": [
+            1
+          ],
+          "regular_generated_levels": [
+            1
+          ]
+        },
+        "initial_load_depth": {
+          "current_depth_file_exists": true,
+          "modified": 1,
+          "regular": 1
+        },
+        "transition_data": {
+          "level_locked": false,
+          "transitions": [
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 12,
+              "dest_branch": 0,
+              "dest_depth": 0,
+              "dest_type": null,
+              "left": 2,
+              "right": 2,
+              "top": 2,
+              "type": "SURFACE"
+            },
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 13,
+              "dest_branch": 0,
+              "dest_depth": 1,
+              "dest_type": "REGULAR_ENTRANCE",
+              "left": 3,
+              "right": 3,
+              "top": 2,
+              "type": "REGULAR_EXIT"
+            }
+          ]
+        },
+        "visible_hero_state": {
+          "armor_present": {
+            "modified": true,
+            "regular": true
+          },
+          "hp": {
+            "modified": 20,
+            "regular": 20
+          },
+          "strength": {
+            "modified": 10,
+            "regular": 10
+          }
+        }
+      },
+      "regular_game_dat": {
+        "bytes": 1077,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/regular/game2/game.dat",
+        "sha256": "4b715cd4a740ba40efcbf128dc17706149dd7f602ed0de40c41fea8377a5f3f5"
+      },
+      "summary": "The down ladder points back to depth 1, so descending reloads the same floor.",
+      "title": "Same-floor descent loop"
+    },
+    "game3": {
+      "copied_game_dat": {
+        "bytes": 1078,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/copy/game3/game.dat",
+        "sha256": "c31f959ac9fbba9f064f185bfe035e6724afc8e164f92cce3e59451525ca3c58"
+      },
+      "copy_matches_regular": true,
+      "custom_seed": "DOWN-TO-DEPTH-999",
+      "modified_game_dat": {
+        "bytes": 1074,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/modified/game3/game.dat",
+        "sha256": "0276a366fdac80a48abaa7fe4e0fdbed477b685d959bcc1f716454235bdce17b"
+      },
+      "name": "out_of_range_depth",
+      "quality_issue_deltas": {
+        "generated_level_files": {
+          "missing_generated_files": [],
+          "modified_generated_levels": [
+            1
+          ],
+          "regular_generated_levels": [
+            1
+          ]
+        },
+        "initial_load_depth": {
+          "current_depth_file_exists": true,
+          "modified": 1,
+          "regular": 1
+        },
+        "transition_data": {
+          "level_locked": false,
+          "transitions": [
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 12,
+              "dest_branch": 0,
+              "dest_depth": 0,
+              "dest_type": null,
+              "left": 2,
+              "right": 2,
+              "top": 2,
+              "type": "SURFACE"
+            },
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 13,
+              "dest_branch": 0,
+              "dest_depth": 999,
+              "dest_type": "REGULAR_ENTRANCE",
+              "left": 3,
+              "right": 3,
+              "top": 2,
+              "type": "REGULAR_EXIT"
+            }
+          ]
+        },
+        "visible_hero_state": {
+          "armor_present": {
+            "modified": true,
+            "regular": true
+          },
+          "hp": {
+            "modified": 20,
+            "regular": 20
+          },
+          "strength": {
+            "modified": 10,
+            "regular": 10
+          }
+        }
+      },
+      "regular_game_dat": {
+        "bytes": 1078,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/regular/game3/game.dat",
+        "sha256": "c31f959ac9fbba9f064f185bfe035e6724afc8e164f92cce3e59451525ca3c58"
+      },
+      "summary": "The down ladder points to depth 999, forcing the fallback `DeadEndLevel` path.",
+      "title": "Out-of-range destination depth"
+    },
+    "game4": {
+      "copied_game_dat": {
+        "bytes": 1079,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/copy/game4/game.dat",
+        "sha256": "71f46eca32a8352630f575b91d3cc6627e67f415972935fa54316e2864ccc1ed"
+      },
+      "copy_matches_regular": true,
+      "custom_seed": "VISIBLE-DOWN-NO-TRANSITION",
+      "modified_game_dat": {
+        "bytes": 1080,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/modified/game4/game.dat",
+        "sha256": "933cb32f373e6ac5216857973658498c1dbe852940b45fb3b9002b09a6de295c"
+      },
+      "name": "unbound_exit_tile",
+      "quality_issue_deltas": {
+        "generated_level_files": {
+          "missing_generated_files": [],
+          "modified_generated_levels": [
+            1
+          ],
+          "regular_generated_levels": [
+            1
+          ]
+        },
+        "initial_load_depth": {
+          "current_depth_file_exists": true,
+          "modified": 1,
+          "regular": 1
+        },
+        "transition_data": {
+          "level_locked": false,
+          "transitions": [
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 12,
+              "dest_branch": 0,
+              "dest_depth": 0,
+              "dest_type": null,
+              "left": 2,
+              "right": 2,
+              "top": 2,
+              "type": "SURFACE"
+            }
+          ]
+        },
+        "visible_hero_state": {
+          "armor_present": {
+            "modified": true,
+            "regular": true
+          },
+          "hp": {
+            "modified": 20,
+            "regular": 20
+          },
+          "strength": {
+            "modified": 10,
+            "regular": 10
+          }
+        }
+      },
+      "regular_game_dat": {
+        "bytes": 1079,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/regular/game4/game.dat",
+        "sha256": "71f46eca32a8352630f575b91d3cc6627e67f415972935fa54316e2864ccc1ed"
+      },
+      "summary": "The visible down ladder tile has no transition, so it behaves like ordinary floor.",
+      "title": "Exit tile without transition"
+    },
+    "game5": {
+      "copied_game_dat": {
+        "bytes": 1078,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/copy/game5/game.dat",
+        "sha256": "28336aae22867852980ee11127b3a71c2345ba799b508e8089bb7245c45f7e7d"
+      },
+      "copy_matches_regular": true,
+      "custom_seed": "HIDDEN-FLOOR-TILE-DESCENDS",
+      "modified_game_dat": {
+        "bytes": 1079,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/modified/game5/game.dat",
+        "sha256": "2d6acbf4ae4104507958a6da056b3b9a1156469b53220831d3a4955a0a8bef96"
+      },
+      "name": "invisible_transition",
+      "quality_issue_deltas": {
+        "generated_level_files": {
+          "missing_generated_files": [],
+          "modified_generated_levels": [
+            1
+          ],
+          "regular_generated_levels": [
+            1
+          ]
+        },
+        "initial_load_depth": {
+          "current_depth_file_exists": true,
+          "modified": 1,
+          "regular": 1
+        },
+        "transition_data": {
+          "level_locked": false,
+          "transitions": [
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 12,
+              "dest_branch": 0,
+              "dest_depth": 0,
+              "dest_type": null,
+              "left": 2,
+              "right": 2,
+              "top": 2,
+              "type": "SURFACE"
+            },
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 3,
+              "center": 17,
+              "dest_branch": 0,
+              "dest_depth": 2,
+              "dest_type": "REGULAR_ENTRANCE",
+              "left": 2,
+              "right": 2,
+              "top": 3,
+              "type": "REGULAR_EXIT"
+            }
+          ]
+        },
+        "visible_hero_state": {
+          "armor_present": {
+            "modified": true,
+            "regular": true
+          },
+          "hp": {
+            "modified": 20,
+            "regular": 20
+          },
+          "strength": {
+            "modified": 10,
+            "regular": 10
+          }
+        }
+      },
+      "regular_game_dat": {
+        "bytes": 1078,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/regular/game5/game.dat",
+        "sha256": "28336aae22867852980ee11127b3a71c2345ba799b508e8089bb7245c45f7e7d"
+      },
+      "summary": "The visible down ladder does nothing, while an ordinary floor tile secretly descends.",
+      "title": "Transition detached from visible ladder"
+    },
+    "game6": {
+      "copied_game_dat": {
+        "bytes": 1078,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/copy/game6/game.dat",
+        "sha256": "83e126fe69103debba4d8ee3242aaaeaac154ed034bfa5c3b9efbe41b1263d4c"
+      },
+      "copy_matches_regular": true,
+      "custom_seed": "LOCKED-LEVEL-STAIRS-BLOCKED",
+      "modified_game_dat": {
+        "bytes": 1076,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/modified/game6/game.dat",
+        "sha256": "e69b5fc9df8c689e8e070b2b958e0b3309714ee3196e1cba1d99be403da1cacf"
+      },
+      "name": "locked_level",
+      "quality_issue_deltas": {
+        "generated_level_files": {
+          "missing_generated_files": [],
+          "modified_generated_levels": [
+            1
+          ],
+          "regular_generated_levels": [
+            1
+          ]
+        },
+        "initial_load_depth": {
+          "current_depth_file_exists": true,
+          "modified": 1,
+          "regular": 1
+        },
+        "transition_data": {
+          "level_locked": true,
+          "transitions": [
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 12,
+              "dest_branch": 0,
+              "dest_depth": 0,
+              "dest_type": null,
+              "left": 2,
+              "right": 2,
+              "top": 2,
+              "type": "SURFACE"
+            },
+            {
+              "__className": "com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition",
+              "bottom": 2,
+              "center": 13,
+              "dest_branch": 0,
+              "dest_depth": 2,
+              "dest_type": "REGULAR_ENTRANCE",
+              "left": 3,
+              "right": 3,
+              "top": 2,
+              "type": "REGULAR_EXIT"
+            }
+          ]
+        },
+        "visible_hero_state": {
+          "armor_present": {
+            "modified": true,
+            "regular": true
+          },
+          "hp": {
+            "modified": 20,
+            "regular": 20
+          },
+          "strength": {
+            "modified": 10,
+            "regular": 10
+          }
+        }
+      },
+      "regular_game_dat": {
+        "bytes": 1078,
+        "path": "shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean/regular/game6/game.dat",
+        "sha256": "83e126fe69103debba4d8ee3242aaaeaac154ed034bfa5c3b9efbe41b1263d4c"
+      },
+      "summary": "The floor is flagged locked, so visible transitions refuse to activate.",
+      "title": "Locked level with normal-looking ladders"
+    }
+  }
+}

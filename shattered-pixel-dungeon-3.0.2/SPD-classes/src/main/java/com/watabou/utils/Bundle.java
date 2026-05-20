@@ -39,8 +39,11 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -52,6 +55,9 @@ public class Bundle {
 	private static final String CLASS_NAME = "__className";
 
 	public static final String DEFAULT_KEY = "key";
+
+	private static final String CHECKSUM = "__checksum";
+	private static final String CHECKSUM_PREFIX = "sha256:";
 
 	private static HashMap<String,String> aliases = new HashMap<>();
 
@@ -490,6 +496,26 @@ public class Bundle {
 
 	public static Bundle read( InputStream stream ) throws IOException {
 
+		JSONObject jsonObject = readJSONObject(stream);
+		verifyChecksum(jsonObject);
+
+		return new Bundle( jsonObject );
+	}
+
+	public static String readChecksum( InputStream stream ) throws IOException {
+
+		JSONObject jsonObject = readJSONObject(stream);
+		if (!jsonObject.has(CHECKSUM)){
+			return null;
+		}
+
+		String checksum = jsonObject.optString(CHECKSUM, null);
+		verifyChecksum(jsonObject);
+		return checksum;
+	}
+
+	private static JSONObject readJSONObject( InputStream stream ) throws IOException {
+
 		try {
 			if (!stream.markSupported()){
 				stream = new BufferedInputStream( stream, 2 );
@@ -507,7 +533,7 @@ public class Bundle {
 			}
 
 			//JSONTokenizer only has a string-based constructor on Android/iOS
-			BufferedReader reader = new BufferedReader( new InputStreamReader( stream ));
+			BufferedReader reader = new BufferedReader( new InputStreamReader( stream, "UTF-8" ));
 			StringBuilder jsonBuilder = new StringBuilder();
 
 			String line;
@@ -538,7 +564,7 @@ public class Bundle {
 				json = new JSONObject().put( DEFAULT_KEY, json );
 			}
 
-			return new Bundle( (JSONObject) json );
+			return (JSONObject) json;
 		} catch (Exception e) {
 			Game.reportException(e);
 			throw new IOException();
@@ -570,17 +596,112 @@ public class Bundle {
 	public static boolean write( Bundle bundle, OutputStream stream, boolean compressed ) {
 		try {
 			BufferedWriter writer;
-			if (compressed) writer = new BufferedWriter( new OutputStreamWriter( new GZIPOutputStream(stream, GZIP_BUFFER ) ) );
-			else writer = new BufferedWriter( new OutputStreamWriter( stream ) );
+			if (compressed) writer = new BufferedWriter( new OutputStreamWriter( new GZIPOutputStream(stream, GZIP_BUFFER ), "UTF-8" ) );
+			else writer = new BufferedWriter( new OutputStreamWriter( stream, "UTF-8" ) );
 
-			//JSONObject.write does not exist on Android/iOS
-			writer.write(bundle.data.toString());
+			writer.write( signedJSON(bundle.data) );
 			writer.close();
 
 			return true;
-		} catch (IOException e) {
+		} catch (Exception e) {
 			Game.reportException(e);
 			return false;
+		}
+	}
+
+	private static void verifyChecksum( JSONObject data ) throws IOException, JSONException {
+		if (!data.has(CHECKSUM)){
+			return;
+		}
+
+		Object expected = data.get(CHECKSUM);
+		if (!(expected instanceof String)){
+			throw new IOException("bundle checksum is invalid");
+		}
+
+		String actual = checksum(canonicalJSON(data, true, null));
+		if (!expected.equals(actual)){
+			throw new IOException("bundle checksum mismatch");
+		}
+
+		data.remove(CHECKSUM);
+	}
+
+	private static String signedJSON( JSONObject data ) throws IOException, JSONException {
+		String unsignedJSON = canonicalJSON(data, true, null);
+		return canonicalJSON(data, true, checksum(unsignedJSON));
+	}
+
+	private static String checksum( String json ) throws IOException {
+		try {
+			byte[] hash = MessageDigest.getInstance("SHA-256").digest(json.getBytes("UTF-8"));
+			StringBuilder result = new StringBuilder(CHECKSUM_PREFIX);
+			for (int i = 0; i < hash.length; i++) {
+				String hex = Integer.toHexString(hash[i] & 0xff);
+				if (hex.length() == 1) result.append('0');
+				result.append(hex);
+			}
+			return result.toString();
+		} catch (NoSuchAlgorithmException e) {
+			throw new IOException(e);
+		}
+	}
+
+	private static String canonicalJSON( JSONObject object, boolean root, String checksum ) throws JSONException, IOException {
+		StringBuilder builder = new StringBuilder();
+		appendObject(object, builder, root, checksum);
+		return builder.toString();
+	}
+
+	private static void appendObject( JSONObject object, StringBuilder builder, boolean root, String checksum ) throws JSONException, IOException {
+		ArrayList<String> keys = new ArrayList<>();
+		Iterator<String> iterator = object.keys();
+		while (iterator.hasNext()){
+			String key = iterator.next();
+			if (!root || !CHECKSUM.equals(key)){
+				keys.add(key);
+			}
+		}
+		if (root && checksum != null){
+			keys.add(CHECKSUM);
+		}
+		Collections.sort(keys);
+
+		builder.append('{');
+		for (int i = 0; i < keys.size(); i++){
+			if (i > 0) builder.append(',');
+			String key = keys.get(i);
+			builder.append(JSONObject.quote(key));
+			builder.append(':');
+			if (root && CHECKSUM.equals(key) && checksum != null){
+				appendValue(checksum, builder);
+			} else {
+				appendValue(object.get(key), builder);
+			}
+		}
+		builder.append('}');
+	}
+
+	private static void appendArray( JSONArray array, StringBuilder builder ) throws JSONException, IOException {
+		builder.append('[');
+		for (int i = 0; i < array.length(); i++){
+			if (i > 0) builder.append(',');
+			appendValue(array.get(i), builder);
+		}
+		builder.append(']');
+	}
+
+	private static void appendValue( Object value, StringBuilder builder ) throws JSONException, IOException {
+		if (value == null || value == JSONObject.NULL){
+			builder.append("null");
+		} else if (value instanceof JSONObject){
+			appendObject((JSONObject)value, builder, false, null);
+		} else if (value instanceof JSONArray){
+			appendArray((JSONArray)value, builder);
+		} else if (value instanceof Number || value instanceof Boolean){
+			builder.append(value.toString());
+		} else {
+			builder.append(JSONObject.quote(value.toString()));
 		}
 	}
 	
