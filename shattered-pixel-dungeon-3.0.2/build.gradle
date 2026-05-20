@@ -45,3 +45,180 @@ tasks.register('featureTest') {
     description = 'Runs the branch-added unit and integration tests.'
     dependsOn ':SPD-classes:test', ':SPD-classes:integrationTest', ':SPD-classes:jacocoTestReport', ':core:test', ':core:integrationTest', ':core:jacocoTestReport'
 }
+
+// ---------------------------------------------------------------------------
+// Recovery-save utilities
+//
+// These tasks operate on the desktop save directory directly (no game runtime
+// needed).  The save location is inferred from the platform but can be
+// overridden with -PsaveDir=/absolute/path.
+//
+// Usage:
+//   ./gradlew listRecoverySaves
+//   ./gradlew restoreRecoverySave -PrecoveryIndex=2 -PtargetSlot=1
+//   ./gradlew deleteRecoverySave  -PrecoveryIndex=2
+// ---------------------------------------------------------------------------
+
+def resolveDefaultSaveDir() {
+    String os   = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+    String home = System.getProperty('user.home')
+    // Vendor segment is derived from appPackageName in DesktopLauncher:
+    //   "com.shatteredpixel.shatteredpixeldungeon".split(".")[1] -> "shatteredpixel"
+    String vendor = 'shatteredpixel'
+    String title  = 'Shattered Pixel Dungeon'
+    if (os.contains('win')) {
+        return new File(home, "AppData/Roaming/.${vendor}/${title}")
+    } else if (os.contains('mac')) {
+        return new File(home, "Library/Application Support/${title}")
+    } else {
+        String xdg = System.getenv('XDG_DATA_HOME') ?: "${home}/.local/share"
+        return new File(xdg, ".${vendor}/shattered-pixel-dungeon")
+    }
+}
+
+def getSaveDir() {
+    return project.hasProperty('saveDir') ? new File(project.saveDir as String)
+                                          : resolveDefaultSaveDir()
+}
+
+def getRecoveryEntries(File saveDir) {
+    File recoveryDir = new File(saveDir, 'recovery')
+    if (!recoveryDir.exists() || !recoveryDir.isDirectory()) return []
+    return (recoveryDir.listFiles()?.findAll { it.isDirectory() } ?: []).sort { it.name }
+}
+
+// -- listRecoverySaves -------------------------------------------------------
+
+task listRecoverySaves {
+    group       = 'SPD Recovery'
+    description = 'Lists all recovery saves. Override save location with -PsaveDir=/path.'
+
+    doLast {
+        File saveDir = getSaveDir()
+        List<File> entries = getRecoveryEntries(saveDir)
+
+        println ""
+        println "Save directory : ${saveDir}"
+        println "Recovery folder: ${new File(saveDir, 'recovery')}"
+        println ""
+
+        if (entries.isEmpty()) {
+            println "No recovery saves found."
+        } else {
+            println String.format("%-6s %-26s %s", "Index", "Deleted at", "Original slot")
+            println "-" * 55
+            entries.eachWithIndex { File dir, int i ->
+                // Entry name format: <timestamp>_<slotFolder>  e.g. 1716000000000_game2
+                String[] parts     = dir.name.split('_', 2)
+                String   slotName  = parts.length == 2 ? parts[1] : dir.name
+                String   timestamp = parts.length == 2 ? parts[0] : '?'
+                String   humanTime = '?'
+                if (timestamp.isLong()) {
+                    humanTime = new Date(timestamp.toLong()).format('yyyy-MM-dd HH:mm:ss')
+                }
+                println String.format("  %-4d %-26s %s", i + 1, humanTime, slotName)
+            }
+            println ""
+            println "To restore: ./gradlew restoreRecoverySave -PrecoveryIndex=N -PtargetSlot=M"
+            println "To delete : ./gradlew deleteRecoverySave  -PrecoveryIndex=N"
+        }
+        println ""
+    }
+}
+
+// -- restoreRecoverySave -----------------------------------------------------
+
+task restoreRecoverySave {
+    group       = 'SPD Recovery'
+    description = 'Restores a recovery save into a game slot. ' +
+                  'Required: -PrecoveryIndex=N -PtargetSlot=M (1-based). ' +
+                  'Optional: -PsaveDir=/path.'
+
+    doLast {
+        if (!project.hasProperty('recoveryIndex') || !project.hasProperty('targetSlot')) {
+            throw new GradleException(
+                "Missing parameters.\n" +
+                "Usage: ./gradlew restoreRecoverySave -PrecoveryIndex=N -PtargetSlot=M\n" +
+                "Run listRecoverySaves first to see available entries."
+            )
+        }
+
+        File saveDir    = getSaveDir()
+        int  index      = (project.recoveryIndex as String).toInteger()
+        int  targetSlot = (project.targetSlot    as String).toInteger()
+
+        if (targetSlot < 1 || targetSlot > 6) {
+            throw new GradleException("targetSlot must be between 1 and 6 (got ${targetSlot}).")
+        }
+
+        List<File> entries = getRecoveryEntries(saveDir)
+        if (entries.isEmpty()) {
+            throw new GradleException("No recovery saves found in: ${new File(saveDir, 'recovery')}")
+        }
+        if (index < 1 || index > entries.size()) {
+            throw new GradleException(
+                "recoveryIndex ${index} is out of range (1-${entries.size()}). " +
+                "Run listRecoverySaves to see available entries."
+            )
+        }
+
+        File source = entries[index - 1]
+        File dest   = new File(saveDir, "game${targetSlot}")
+
+        if (dest.exists()) {
+            println "Warning: slot ${targetSlot} already contains a save and will be overwritten."
+            dest.deleteDir()
+        }
+        dest.mkdirs()
+
+        int filesCopied = 0
+        source.listFiles()?.findAll { !it.isDirectory() }?.each { File f ->
+            new File(dest, f.name).bytes = f.bytes
+            filesCopied++
+        }
+
+        println ""
+        println "Restored '${source.name}' -> game slot ${targetSlot}  (${filesCopied} file(s) copied)"
+        println "Save directory: ${saveDir}"
+        println ""
+    }
+}
+
+// -- deleteRecoverySave ------------------------------------------------------
+
+task deleteRecoverySave {
+    group       = 'SPD Recovery'
+    description = 'Permanently removes one recovery entry. ' +
+                  'Required: -PrecoveryIndex=N. Optional: -PsaveDir=/path.'
+
+    doLast {
+        if (!project.hasProperty('recoveryIndex')) {
+            throw new GradleException(
+                "Missing parameter.\n" +
+                "Usage: ./gradlew deleteRecoverySave -PrecoveryIndex=N\n" +
+                "Run listRecoverySaves first to see available entries."
+            )
+        }
+
+        File       saveDir = getSaveDir()
+        int        index   = (project.recoveryIndex as String).toInteger()
+        List<File> entries = getRecoveryEntries(saveDir)
+
+        if (entries.isEmpty()) {
+            throw new GradleException("No recovery saves found in: ${new File(saveDir, 'recovery')}")
+        }
+        if (index < 1 || index > entries.size()) {
+            throw new GradleException(
+                "recoveryIndex ${index} is out of range (1-${entries.size()}). " +
+                "Run listRecoverySaves to see available entries."
+            )
+        }
+
+        File target = entries[index - 1]
+        target.deleteDir()
+
+        println ""
+        println "Deleted recovery entry: ${target.name}"
+        println ""
+    }
+}
