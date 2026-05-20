@@ -43,5 +43,5 @@ allprojects {
 tasks.register('featureTest') {
     group = 'verification'
     description = 'Runs the branch-added unit and integration tests.'
-    dependsOn ':SPD-classes:test', ':SPD-classes:integrationTest', ':SPD-classes:jacocoTestReport'
+    dependsOn ':SPD-classes:test', ':SPD-classes:integrationTest', ':SPD-classes:jacocoTestReport', ':core:test', ':core:integrationTest', ':core:jacocoTestReport'
 }
