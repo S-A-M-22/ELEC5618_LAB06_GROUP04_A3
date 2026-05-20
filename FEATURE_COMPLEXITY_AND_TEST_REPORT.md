@@ -33,21 +33,24 @@ The existing AI decision structure is intentionally preserved. Most existing mob
 
 ### Changed Function Complexity
 
+Important scope note: the mob behaviour logging feature does not add new decision points to the original AI state-machine logic. The existing `Mob` behaviours still make the same gameplay decisions as the benchmark; most changes replace direct field assignments with helper calls. The cyclomatic complexity increase is in newly added observational helpers and logger methods, not in the original AI control flow itself.
+
 | Function or method group | Original V(G) | New V(G) | Increase | Analysis |
 |---|---:|---:|---:|---|
-| Direct `state = ...` assignment sites in `Mob` | 1 each | delegated to `setState` | + helper cost | Original sites had no local branch. New code adds a shared no-op branch and null-safe state-name extraction. |
-| `Mob.setState` | 0 | approx. 4 | +4 | New method. Paths: unchanged state return; changed state with non-null names; changed state with null old or new state. |
-| Direct `enemy = ...` assignment sites in `Mob` | 1 each | delegated to `setEnemy` | + helper cost | Assignment behaviour is preserved, but target logging is added. |
-| `Mob.setEnemy` | 0 | approx. 4 | +4 | New method. Paths: same target return; new non-null target; null target placeholder; target id extraction. |
-| Direct `alerted = true` sites in `Mob` | 1 each | delegated to `markAlerted` | + helper cost | Alert mutation is now idempotent. |
-| `Mob.markAlerted` | 0 | approx. 2 | +2 | New method. Paths: already alerted return; first alert mutation and log. |
+| Existing `Mob` AI decision methods such as `act`, `chooseEnemy`, `Wandering.act`, `Hunting.act`, and `Fleeing.act` | unchanged | unchanged | 0 | Direct assignments were replaced by helper calls, but the gameplay branches and transitions remain the same. |
+| Direct `state = ...` assignment sites in `Mob` | assignment only | delegated to `setState` | 0 in caller | Original sites had no local decision branch. The caller still follows the same path; helper complexity is counted separately. |
+| `Mob.setState` | 0 | approx. 4 | +4 new helper | New observational helper. Paths: unchanged state return; changed state with non-null names; changed state with null old or new state. |
+| Direct `enemy = ...` assignment sites in `Mob` | assignment only | delegated to `setEnemy` | 0 in caller | Assignment behaviour is preserved; target logging is delegated. |
+| `Mob.setEnemy` | 0 | approx. 4 | +4 new helper | New observational helper. Paths: same target return; new non-null target; null target placeholder; target id extraction. |
+| Direct `alerted = true` sites in `Mob` | assignment only | delegated to `markAlerted` | 0 in caller | Existing alert-triggering paths are preserved; duplicate-alert filtering is delegated. |
+| `Mob.markAlerted` | 0 | approx. 2 | +2 new helper | New observational helper. Paths: already alerted return; first alert mutation and log. |
 | `Mob.onAdd` | 2 | 2 | 0 | The existing `firstAdded` branch remains. The new log call is inside the existing true branch. |
 | `MobBehaviourLogger.logSpawn/logStateChange/logAlert/logTarget` | 0 | 2 each | +2 each | New public event APIs. Each has enabled vs disabled paths. |
 | `MobBehaviourLogger.record` | 0 | 2 | +2 | New ring-buffer append. Paths: below cap vs eviction while over cap. |
 | `MobBehaviourLogger.dispatch` | 0 | 2 | +2 | New sink isolation. Paths: null sink return; sink call; thrown sink swallowed. |
 | `MobBehaviourLogger.safe` | 0 | 2 | +2 | New null placeholder branch. |
 
-Net effect: existing AI methods mostly keep their original cyclomatic complexity, while complexity is concentrated in the new helper/logger subsystem. This is a good containment pattern because the legacy state machine is not made harder to reason about at each mutation site.
+Net effect: the friend statement is accurate for the original mob AI logic: there is no added cyclomatic complexity in the existing gameplay decision flow. At the whole-feature level, there is additional complexity because new helper/logger functions now exist and must be tested. This is a good containment pattern because the legacy state machine is not made harder to reason about at each mutation site.
 
 ### Original Flow Graph
 
@@ -85,18 +88,28 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> SLEEPING: mob constructed
-    SLEEPING --> HUNTING: awaken, enemy in FOV / STATE_CHANGE
-    SLEEPING --> WANDERING: awaken, no enemy in FOV / STATE_CHANGE
-    SLEEPING --> WANDERING: damage while sleeping / STATE_CHANGE
-    WANDERING --> HUNTING: notice enemy / ALERT + STATE_CHANGE
-    HUNTING --> WANDERING: enemy lost, unreachable, or cleared / STATE_CHANGE
-    HUNTING --> FLEEING: terror or dread / STATE_CHANGE
-    FLEEING --> HUNTING: fear removed, enemy seen / STATE_CHANGE
-    FLEEING --> WANDERING: fear removed, no enemy seen / STATE_CHANGE
-    PASSIVE --> PASSIVE: act tick
-    WANDERING --> HUNTING: aggro / TARGET_ASSIGNED + STATE_CHANGE
-    HUNTING --> HUNTING: target switch / TARGET_ASSIGNED
+    state "Empty observed log" as EmptyLog
+    state "MOB_SPAWN observed" as SpawnObserved
+    state "TARGET_ASSIGNED observed" as TargetObserved
+    state "ALERT observed" as AlertObserved
+    state "STATE_CHANGE to HUNTING observed" as HuntingObserved
+    state "STATE_CHANGE to WANDERING observed" as WanderingObserved
+    state "STATE_CHANGE to FLEEING observed" as FleeingObserved
+    state "No new event observed" as NoNewEvent
+
+    [*] --> EmptyLog: clear logger buffer / size is 0
+    EmptyLog --> SpawnObserved: add new mob / log contains MOB_SPAWN
+    SpawnObserved --> NoNewEvent: add restored mob / no MOB_SPAWN line added
+    SpawnObserved --> TargetObserved: assign visible enemy / log contains TARGET_ASSIGNED
+    TargetObserved --> HuntingObserved: aggro or notice enemy / log contains STATE_CHANGE ... -> Hunting
+    HuntingObserved --> WanderingObserved: clear or lose enemy / log contains STATE_CHANGE ... -> Wandering
+    HuntingObserved --> FleeingObserved: apply terror or dread / log contains STATE_CHANGE ... -> Fleeing
+    FleeingObserved --> HuntingObserved: fear removed with enemy visible / log contains STATE_CHANGE ... -> Hunting
+    FleeingObserved --> WanderingObserved: fear removed with no enemy visible / log contains STATE_CHANGE ... -> Wandering
+    WanderingObserved --> AlertObserved: enemy noticed or damage taken / log contains ALERT
+    AlertObserved --> HuntingObserved: same stimulus continues / log contains STATE_CHANGE ... -> Hunting
+    HuntingObserved --> TargetObserved: switch target / log contains TARGET_ASSIGNED
+    TargetObserved --> NoNewEvent: assign same target again / no extra target event
 ```
 
 ### Unit Test Path Definitions
@@ -272,17 +285,26 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> NoManifest: old or fresh profile
-    NoManifest --> ManifestCurrent: first protected write
-    ManifestCurrent --> ManifestCurrent: normal save/update/delete/overwrite
-    ManifestCurrent --> BundleTampered: bundle JSON edited without valid __checksum
-    ManifestCurrent --> FileTampered: bytes, file names, or protected paths changed
-    ManifestCurrent --> ManifestInvalid: manifest shape or overall checksum invalid
-    BundleTampered --> Rejected: Bundle.verifyChecksum throws IOException
-    FileTampered --> Rejected: FileUtils.verifySaveManifest throws IOException
-    ManifestInvalid --> Rejected: invalid manifest rejected
-    ManifestCurrent --> LegacyCompatible: normalized game slot rename or old bundle checksum accepted
-    LegacyCompatible --> ManifestCurrent: next manifest refresh
+    state "No save_checksums.dat visible" as NoManifest
+    state "Save loads successfully" as LoadSucceeds
+    state "Manifest file visible" as ManifestVisible
+    state "Tampered bundle is rejected" as BundleRejected
+    state "Tampered file set is rejected" as ManifestRejected
+    state "Invalid manifest is rejected" as InvalidManifestRejected
+    state "Renamed game slot still loads" as RenameCompatible
+
+    [*] --> NoManifest: start with legacy or empty profile
+    NoManifest --> LoadSucceeds: read legacy bundle / Bundle loads
+    NoManifest --> ManifestVisible: write protected save / save_checksums.dat appears
+    ManifestVisible --> LoadSucceeds: read protected save / load succeeds
+    LoadSucceeds --> ManifestVisible: save, delete, overwrite, or settings write / manifest timestamp or checksum changes
+    ManifestVisible --> BundleRejected: edit JSON value without updating __checksum / IOException is observed
+    ManifestVisible --> ManifestRejected: flip protected file bytes or rename protected file / IOException is observed
+    ManifestVisible --> InvalidManifestRejected: corrupt manifest shape or overall checksum / IOException is observed
+    ManifestVisible --> RenameCompatible: rename game1 to another game slot folder / load still succeeds
+    RenameCompatible --> ManifestVisible: next protected write / manifest refresh is visible
+    BundleRejected --> ManifestVisible: rewrite through FileUtils / load succeeds again
+    ManifestRejected --> ManifestVisible: rewrite through FileUtils / load succeeds again
 ```
 
 ### Unit Test Path Definitions
@@ -446,17 +468,24 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ActiveSave
-    ActiveSave --> RecoveryCreated: delete requested / copy slot files
-    RecoveryCreated --> DeletedSlot: original slot overwritten/deleted
-    RecoveryCreated --> RetentionPruned: recovery count > 5
-    RetentionPruned --> RecoveryCreated: oldest entry removed
-    DeletedSlot --> RecoveryListed: start scene or Gradle list
-    RecoveryListed --> RestoreRequested: user selects recovery
-    RestoreRequested --> ConfirmOverwrite: target slot occupied
-    ConfirmOverwrite --> RestoredSave: user confirms
-    RestoreRequested --> RestoredSave: target slot empty
-    RestoredSave --> RecoveryListed: recovery entry retained
+    state "No recovery entry visible" as NoRecovery
+    state "Recover button visible" as RecoverButton
+    state "Recovery entry listed" as RecoveryListed
+    state "Deleted slot no longer visible" as DeletedSlot
+    state "Five newest recoveries listed" as FiveListed
+    state "Overwrite confirmation visible" as ConfirmOverwrite
+    state "Restored slot visible" as RestoredSlot
+    state "Recovery entry still listed" as EntryRetained
+
+    [*] --> NoRecovery: profile has no recovery folder / no Recover button
+    NoRecovery --> RecoveryListed: delete existing save / recovery entry appears on disk
+    RecoveryListed --> DeletedSlot: delete completes / original slot files are gone or overwritten
+    RecoveryListed --> RecoverButton: open start scene / Recover button is visible
+    RecoveryListed --> FiveListed: create six recovery entries / oldest entry is not listed
+    RecoverButton --> RestoredSlot: restore to empty target slot / restored files appear in target slot
+    RecoverButton --> ConfirmOverwrite: restore to occupied target slot / confirmation dialog appears
+    ConfirmOverwrite --> RestoredSlot: confirm overwrite / old occupant files disappear and restored files appear
+    RestoredSlot --> EntryRetained: list recoveries again / same recovery entry is still listed
 ```
 
 ### Unit Test Path Definitions
@@ -508,7 +537,7 @@ Structured suite:
 
 | Feature | Complexity placement | Testing strength |
 |---|---|---|
-| Mob behaviour logging | New complexity is isolated in helpers and logger; AI state-machine branches are preserved. | Strong unit coverage for logger internals and integration coverage for mob instrumentation paths. |
+| Mob behaviour logging | Existing AI state-machine branches are preserved; added complexity is isolated in new observational helpers and logger code. | Strong unit coverage for logger internals and integration coverage for mob instrumentation paths. |
 | Save integrity checksum | Highest complexity increase, especially manifest validation and canonical JSON. | Broadest integration suite; tests tampering, legacy compatibility, path normalization, failure containment, and settings interaction. |
 | Recovery saves | Moderate complexity, mostly new and localized in `RecoveryManager` and restore UI. | Unit tests cover manager edge cases; integration tests cover end-to-end file preservation, restore, overwrite, and retention. |
 
@@ -519,4 +548,3 @@ Latest coverage evidence from `./gradlew featureTest --no-daemon`:
 | Mob behaviour logging | 96.0% | 100.0% | 95.8% |
 | Save integrity checksum | 94.0% | 87.2% | 96.8% |
 | Recovery saves | 97.2% | 100.0% | 98.3% |
-
