@@ -64,7 +64,7 @@ public class RecoverySavesIntegrationTest {
 
     // IT-01
     @Test
-    public void fullDeleteAndRestore_fileContentPreservedIntact() throws IOException {
+    public void moveToRecoveryThenRestore_preservesFileContentIntact() throws IOException {
         byte[] originalContent = {0x01, 0x02, 0x03, 0x04, 0x05};
         File slotDir = createSlotWithContent(1, "game.dat", originalContent);
 
@@ -83,7 +83,7 @@ public class RecoverySavesIntegrationTest {
 
     // IT-02
     @Test
-    public void multipleDeletes_restoreCorrectEntryToTargetSlot() throws IOException, InterruptedException {
+    public void restoreEntry_copiesSelectedRecoveryEntryToTargetSlot() throws IOException, InterruptedException {
         createSlotWithContent(1, "marker_slot1.dat", new byte[]{1});
         RecoveryManager.moveToRecovery(1);
         Thread.sleep(5);
@@ -108,7 +108,7 @@ public class RecoverySavesIntegrationTest {
 
     // IT-03
     @Test
-    public void restoreToOccupiedSlot_existingFilesOverwritten() throws IOException {
+    public void restoreEntry_overwritesOccupiedTargetSlot() throws IOException {
         createSlotWithContent(1, "original.dat", new byte[]{10, 20});
         RecoveryManager.moveToRecovery(1);
         deleteRecursive(new File(tempFolder.getRoot(), "game1"));
@@ -127,7 +127,7 @@ public class RecoverySavesIntegrationTest {
 
     // IT-04
     @Test
-    public void sixDeletions_onlyOldestRemovedAndFiveRemain() throws IOException, InterruptedException {
+    public void moveToRecovery_prunesOldestEntryWhenRetentionLimitExceeded() throws IOException, InterruptedException {
         String firstEntryName = null;
 
         for (int i = 0; i < 6; i++) {

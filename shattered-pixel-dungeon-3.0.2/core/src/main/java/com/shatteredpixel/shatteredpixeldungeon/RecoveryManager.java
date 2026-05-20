@@ -24,6 +24,7 @@ package com.shatteredpixel.shatteredpixeldungeon;
 import com.badlogic.gdx.files.FileHandle;
 import com.watabou.utils.FileUtils;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 
@@ -102,6 +103,11 @@ public class RecoveryManager {
         FileUtils.deleteDir(GamesInProgress.gameFolder(targetSlot));
         copyGameDir(RECOVERY_DIR + "/" + entryName, GamesInProgress.gameFolder(targetSlot));
         GamesInProgress.setUnknown(targetSlot);
+        try {
+            FileUtils.updateSaveManifest();
+        } catch (IOException e) {
+            // Restore already happened; later save validation will still catch manifest issues.
+        }
     }
 
     /**

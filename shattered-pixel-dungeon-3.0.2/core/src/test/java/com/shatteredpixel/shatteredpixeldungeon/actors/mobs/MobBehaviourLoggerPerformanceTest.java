@@ -31,7 +31,7 @@ class MobBehaviourLoggerPerformanceTest {
 
 	@Test
 	@DisplayName("disabled logging is essentially free (<10 µs/event guard)")
-	void disabledOverhead() {
+	void disabledLogger_addsLessThanTenMicrosecondsPerEvent() {
 		logger.setEnabled(false);
 		warmup();
 
@@ -48,7 +48,7 @@ class MobBehaviourLoggerPerformanceTest {
 
 	@Test
 	@DisplayName("enabled logSpawn with stub sinks (<100 µs/event guard)")
-	void enabledSpawnOverhead() {
+	void enabledSpawnLogging_addsLessThanHundredMicrosecondsPerEvent() {
 		logger.setEnabled(true);
 		warmup();
 
@@ -65,7 +65,7 @@ class MobBehaviourLoggerPerformanceTest {
 
 	@Test
 	@DisplayName("enabled logStateChange with stub sinks (<100 µs/event guard)")
-	void enabledStateChangeOverhead() {
+	void enabledStateChangeLogging_addsLessThanHundredMicrosecondsPerEvent() {
 		logger.setEnabled(true);
 		for (int i = 0; i < WARMUP; i++) {
 			logger.logStateChange(i, "Rat", 0, "Sleeping", "Hunting");
@@ -85,7 +85,7 @@ class MobBehaviourLoggerPerformanceTest {
 
 	@Test
 	@DisplayName("ring-buffer eviction at the 1000-entry cap stays cheap")
-	void ringBufferEvictionOverhead() {
+	void ringBufferAtCapacity_evictsOldestEntryWithinBudget() {
 		logger.setEnabled(true);
 		logger.setMaxEntries(1000);
 		// Pre-fill the buffer so every iteration triggers eviction.

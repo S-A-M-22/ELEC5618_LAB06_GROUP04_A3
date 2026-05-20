@@ -149,7 +149,7 @@ public class FileUtilsSaveManifestIntegrationTest {
 	}
 
 	@Test
-	public void fileHandleAndBasicFileHelpersCoverAllSupportedFileTypes() throws IOException {
+	public void fileHelpers_resolveReadAndWriteAcrossAllSupportedFileTypes() throws IOException {
 		new FileUtils();
 		writeText("present.dat", "abc");
 		writeText("empty.dat", "");
@@ -240,7 +240,7 @@ public class FileUtilsSaveManifestIntegrationTest {
 	}
 
 	@Test
-	public void deleteAndOverwriteRefreshManifest() throws IOException {
+	public void deleteFileAndOverwriteFile_refreshManifestAfterPrimaryAction() throws IOException {
 		FileUtils.bundleToFile("rankings.dat", bundle("score", 10));
 		assertArrayEquals(new String[]{"rankings.dat"}, FileUtils.bundleFromFile(MANIFEST).getStringArray("paths"));
 
@@ -381,7 +381,7 @@ public class FileUtilsSaveManifestIntegrationTest {
 	}
 
 	@Test
-	public void verifyRejectsInvalidManifestShapes() throws IOException {
+	public void bundleFromFile_rejectsInvalidManifestShapes() throws IOException {
 		mkdirs("game1");
 		writeSignedBundle("game1/game.dat", bundle("depth", 1));
 
@@ -420,7 +420,7 @@ public class FileUtilsSaveManifestIntegrationTest {
 	}
 
 	@Test
-	public void checksumHelpersWrapUnavailableSha256Provider() throws Exception {
+	public void manifestRefreshAndBundleRead_wrapUnavailableSha256Provider() throws Exception {
 		Provider[] providers = Security.getProviders();
 		for (Provider provider : providers) {
 			Security.removeProvider(provider.getName());

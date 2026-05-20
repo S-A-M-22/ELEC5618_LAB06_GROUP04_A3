@@ -161,7 +161,7 @@ public class RecoveryManagerTest {
 
     // UT-08
     @Test
-    public void moveToRecovery_sixDeletions_onlyFiveEntriesRetained() throws IOException, InterruptedException {
+    public void moveToRecovery_prunesOldestEntryWhenMoreThanFiveEntriesExist() throws IOException, InterruptedException {
         String firstEntryName = null;
 
         for (int i = 0; i < 6; i++) {
