@@ -4,6 +4,7 @@ import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Files;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.backends.headless.HeadlessApplication;
+import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.GamesInProgress;
 import com.shatteredpixel.shatteredpixeldungeon.RecoveryManager;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
@@ -168,7 +169,7 @@ public class MergedFeatureIntegrationTest {
 	}
 
 	@Test
-	public void deleteGameLikeWorkflow_updatesManifestAndRecoveryKeepsOriginalBytes() throws Exception {
+	public void helperDeletionWorkflow_updatesManifestAndRecoveryKeepsOriginalBytes() throws Exception {
 		writeSaveSlot(1, 91, 92);
 		byte[] originalGame = readBytes(GamesInProgress.gameFile(1));
 		byte[] originalDepth = readBytes(GamesInProgress.depthFile(1, 1, 0));
@@ -182,6 +183,35 @@ public class MergedFeatureIntegrationTest {
 		File entryDir = file("recovery/" + onlyRecoveryEntry());
 		assertArrayEquals(originalGame, readBytes(new File(entryDir, "game.dat")));
 		assertArrayEquals(originalDepth, readBytes(new File(entryDir, "depth1.dat")));
+	}
+
+	@Test
+	public void deleteGameRestoreLoadThenTamper_lifecycleKeepsRecoveryReadableAndRejectsTamper() throws Exception {
+		writeSaveSlot(1, 101, 102);
+		useRealMobLogFileSink();
+
+		triggerMobEvents();
+
+		assertEquals(4, logger.size());
+		assertTrue(file(MobBehaviourLogger.DEFAULT_LOG_FILE).exists());
+
+		Dungeon.deleteGame(1, true);
+
+		assertFalse(GamesInProgress.gameExists(1));
+		assertArrayEquals(new String[]{"game*/game.dat"},
+				FileUtils.bundleFromFile(MANIFEST).getStringArray("paths"));
+		String entry = onlyRecoveryEntry();
+
+		RecoveryManager.restoreEntry(entry, 1);
+
+		assertArrayEquals(new String[]{"game*/depth1.dat", "game*/game.dat"},
+				FileUtils.bundleFromFile(MANIFEST).getStringArray("paths"));
+		assertEquals(101, FileUtils.bundleFromFile(GamesInProgress.gameFile(1)).getInt("value"));
+		assertEquals(102, FileUtils.bundleFromFile(GamesInProgress.depthFile(1, 1, 0)).getInt("value"));
+
+		writeText(GamesInProgress.gameFile(1), "{\"value\":999}");
+
+		assertBundleRejected(GamesInProgress.gameFile(1));
 	}
 
 	private void triggerMobEvents() {
