@@ -1,8 +1,25 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath 'com.github.spotbugs.snom:spotbugs-gradle-plugin:6.0.20'
+        classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.15.0'
+    }
+}
+
 apply plugin: 'java-library'
 apply plugin: 'jacoco'
+apply plugin: 'com.github.spotbugs'
+apply plugin: 'info.solidsoft.pitest'
 
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
 sourceCompatibility = targetCompatibility = appJavaCompatibility
+
+repositories {
+    mavenCentral()
+}
 
 dependencies {
     api project(':SPD-classes')
@@ -11,6 +28,12 @@ dependencies {
     testImplementation "junit:junit:4.13.2"
     testImplementation "com.badlogicgames.gdx:gdx-backend-headless:$gdxVersion"
     testImplementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+    testRuntimeOnly  'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+    testRuntimeOnly  'org.junit.vintage:junit-vintage-engine:5.10.2'
+    testRuntimeOnly  'org.junit.platform:junit-platform-launcher:1.10.2'
+    testImplementation 'org.mockito:mockito-core:5.11.0'
 }
 
 configurations {
@@ -31,6 +54,12 @@ test {
     // HeadlessApplication resolves Gdx.files.internal() relative to the working directory.
     // Pointing at src/main/assets lets Messages.setup() find the I18N bundle files.
     workingDir = file('src/main/assets')
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+        showStandardStreams = true
+    }
+    finalizedBy jacocoTestReport
 }
 
 task integrationTest(type: Test) {
@@ -39,9 +68,15 @@ task integrationTest(type: Test) {
     testClassesDirs = sourceSets.integrationTest.output.classesDirs
     classpath = sourceSets.integrationTest.runtimeClasspath
     workingDir = file('src/main/assets')
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+        showStandardStreams = true
+    }
     shouldRunAfter test
 }
 
+// ---- JaCoCo: line/branch coverage ----
 jacoco {
     toolVersion = '0.8.11'
 }
@@ -57,11 +92,54 @@ jacocoTestReport {
         html.required = true
         csv.required = true
     }
+    // Only the branch-added subsystems are in scope for coverage metrics.
     afterEvaluate {
         classDirectories.setFrom(files(classDirectories.files.collect {
             fileTree(dir: it, includes: [
-                    'com/shatteredpixel/shatteredpixeldungeon/RecoveryManager*.class'
+                'com/shatteredpixel/shatteredpixeldungeon/RecoveryManager*.class',
+                'com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLogger*.class'
             ])
         }))
     }
+}
+
+// ---- SpotBugs: static analysis ----
+// Scoped to the new logger only — the legacy game code is out of scope for SQA.
+spotbugs {
+    toolVersion = '4.8.5'
+    effort = com.github.spotbugs.snom.Effort.valueOf('MAX')
+    reportLevel = com.github.spotbugs.snom.Confidence.valueOf('LOW')
+    ignoreFailures = true // report-only; do not block the build
+}
+
+tasks.named('spotbugsMain') {
+    classDirs.setFrom(files(sourceSets.main.output.classesDirs.files.collect {
+        fileTree(dir: it, includes: [
+            'com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLogger*.class'
+        ])
+    }))
+    reports {
+        html.required = true
+        xml.required = true
+    }
+}
+
+tasks.named('spotbugsTest') {
+    enabled = false
+}
+
+// ---- PITest: mutation testing ----
+pitest {
+    targetClasses = ['com.shatteredpixel.shatteredpixeldungeon.actors.mobs.MobBehaviourLogger*']
+    targetTests   = [
+        'com.shatteredpixel.shatteredpixeldungeon.actors.mobs.MobBehaviourLoggerTest*',
+        'com.shatteredpixel.shatteredpixeldungeon.actors.mobs.MobBehaviourLoggerIntegrationTest'
+    ]
+    excludedTestClasses = ['*PerformanceTest']
+    threads = 4
+    outputFormats = ['HTML', 'XML']
+    pitestVersion = '1.16.0'
+    junit5PluginVersion = '1.2.1'
+    timestampedReports = false
+    timeoutConstInMillis = 30000
 }
