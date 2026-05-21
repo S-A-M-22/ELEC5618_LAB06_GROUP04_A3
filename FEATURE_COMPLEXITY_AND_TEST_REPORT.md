@@ -31,6 +31,26 @@ The feature adds `MobBehaviourLogger` plus helper methods in `Mob`:
 
 The existing AI decision structure is intentionally preserved. Most existing mob methods have the same branch structure, but mutation sites now pass through helper methods that add no-op checks and event emission.
 
+### Changed Files and Implementation
+
+Line deltas are from `git diff --numstat 7a72358^1 7a72358`. Text total: 1,593 additions and 33 deletions, plus one binary PDF test plan.
+
+| Changed file | Lines added | Lines deleted | Purpose |
+|---|---:|---:|---|
+| `.gitignore` | 1 | 0 | Ignore generated local artifacts. |
+| `build.gradle` | 8 | 2 | Add feature-test and reporting build support. |
+| `core/build.gradle` | 127 | 0 | Configure core test, integration-test, and JaCoCo feature coverage tasks. |
+| `core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/Mob.java` | 64 | 31 | Route mob state, target, alert, and spawn changes through logging helpers. |
+| `core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLogger.java` | 214 | 0 | Add the event logger, sinks, formatting, and bounded buffer. |
+| `core/src/test/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLoggerTest.java` | 465 | 0 | Unit coverage for logger state, formatting, sinks, null handling, and buffer bounds. |
+| `core/src/test/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLoggerPerformanceTest.java` | 119 | 0 | Performance guards for disabled logging, enabled events, and buffer eviction. |
+| `core/src/integrationTest/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLoggerIntegrationTest.java` | 217 | 0 | Integration coverage for `Mob` instrumentation paths. |
+| `doc/mob-behaviour-logging/cc_analysis.md` | 184 | 0 | Complexity analysis notes. |
+| `doc/mob-behaviour-logging/implementation_work_plan.md` | 194 | 0 | Implementation plan notes. |
+| `doc/mob-behaviour-logging/test_plan.pdf` | binary | binary | Test-plan artifact. |
+
+Implementation paragraph: mob behaviour logging is implemented as an observational layer around existing mob state mutation points. `MobBehaviourLogger` is a singleton with four public event APIs (`logSpawn`, `logStateChange`, `logAlert`, and `logTarget`) that append immutable entries to a capped in-memory buffer, format each event, and dispatch it to terminal and file sinks while swallowing sink failures. `Mob` keeps its existing AI branches, but direct assignments are replaced with `setState`, `setEnemy`, and `markAlerted` helpers that suppress duplicate/no-op events and emit log entries only when the observed mob state actually changes. Spawn logging is placed inside the existing `firstAdded` branch in `onAdd`, so restored mobs do not produce duplicate spawn events.
+
 ### Changed Function Complexity
 
 Important scope note: the mob behaviour logging feature does not add new decision points to the original AI state-machine logic. The existing `Mob` behaviours still make the same gameplay decisions as the benchmark; most changes replace direct field assignments with helper calls. The cyclomatic complexity increase is in newly added observational helpers and logger methods, not in the original AI control flow itself.
@@ -204,6 +224,32 @@ The benchmark save pipeline wrote bundles and read bundles without persistent ta
 2. Save-manifest checksum file `save_checksums.dat` that tracks protected save files, normalized game slot paths, file checksums, and an overall checksum.
 
 The feature also adds settings manifest refresh and crash-report writing support used by the reliability work.
+
+### Changed Files and Implementation
+
+Line deltas are from `git diff --numstat 43c6f42^1 43c6f42`. Text total: 9,440 additions and 13 deletions, plus 36 binary `.dat` save fixture files. Repetitive generated fixture files are grouped below to keep the report readable while preserving their total line footprint.
+
+| Changed file or grouped path | Lines added | Lines deleted | Purpose |
+|---|---:|---:|---|
+| `.idea/*` | 98 | 0 | IDE project metadata present in the feature commit. |
+| `scripts/create_quality_save_fixtures.py` | 594 | 0 | Generate quality-issue save fixture data. |
+| `scripts/install_empty_save_and_run.sh` | 114 | 0 | Manual validation script for empty-save scenario. |
+| `scripts/install_modified_save_and_run.sh` | 206 | 0 | Manual validation script for modified-save scenario. |
+| `SPD-classes/build.gradle` | 52 | 0 | Add test and coverage configuration for SPD utility classes. |
+| `SPD-classes/src/main/java/com/watabou/utils/Bundle.java` | 128 | 7 | Add canonical JSON signing, checksum verification, and checksum reading. |
+| `SPD-classes/src/main/java/com/watabou/utils/FileUtils.java` | 287 | 2 | Add save-manifest creation, refresh, validation, and protected-file scanning. |
+| `SPD-classes/src/main/java/com/watabou/utils/GameSettings.java` | 12 | 3 | Centralize preference flush and refresh the save manifest best-effort. |
+| `SPD-classes/src/main/java/com/watabou/utils/CrashReportWriter.java` | 332 | 0 | Add bounded, failure-tolerant crash report writing support. |
+| `SPD-classes/src/test/java/com/watabou/utils/BundleTest.java` | 386 | 0 | Unit coverage for checksum signing, validation, and canonicalization. |
+| `SPD-classes/src/test/java/com/watabou/utils/GameSettingsTest.java` | 325 | 0 | Unit coverage for settings access and flush behaviour. |
+| `SPD-classes/src/test/java/com/watabou/utils/CrashReportWriterTest.java` | 600 | 0 | Unit coverage for crash-report formatting and failure handling. |
+| `SPD-classes/src/integrationTest/java/com/watabou/utils/FileUtilsSaveManifestIntegrationTest.java` | 849 | 0 | Integration coverage for save manifest, tamper rejection, path normalization, and failure containment. |
+| `build.gradle` | 1 | 1 | Project-level build adjustment. |
+| `doc/save-integrity-checksum/quality-issue-latent-clean.md` | 72 | 0 | Fixture and quality-issue documentation. |
+| `gradlew` | 0 | 0 | File metadata change in the feature commit. |
+| `save-fixtures/quality-issue-latent-clean/**` | 5,384 plus 36 binary files | 0 | Regular, copied, and modified save fixtures plus metrics used for validation. |
+
+Implementation paragraph: save integrity is implemented in two layers. `Bundle.write` now serializes saves through a canonical JSON representation, signs the root object with a SHA-256 `__checksum`, and `Bundle.read` verifies that checksum before returning data to callers. `FileUtils` adds a `save_checksums.dat` manifest that scans protected root save files, active `gameN/*.dat` slot files, and settings data, stores per-file checksums with normalized slot paths, and signs an overall manifest checksum. Save writes, temp recovery, deletion, overwrite, and settings flushes refresh the manifest best-effort; save reads validate the manifest first, allow legacy/no-manifest loads, and reject stale or tampered manifests/files. `CrashReportWriter` adds reliability support for bounded crash reports without letting report-write failures mask the original save operation.
 
 ### Changed Function Complexity
 
@@ -409,6 +455,29 @@ The benchmark deletion flow permanently overwrote/deleted save files. The featur
 - Only the five newest recovery entries are retained.
 - `StartScene` displays a Recover button when recoveries exist.
 - `WndRecoverySave` lists recoveries and restores one into a target slot, confirming overwrite when necessary.
+
+### Changed Files and Implementation
+
+Line deltas are from `git diff --numstat 7811326^1 7811326`. Text total: 1,497 additions and 2 deletions.
+
+| Changed file | Lines added | Lines deleted | Purpose |
+|---|---:|---:|---|
+| `build.gradle` | 177 | 0 | Add recovery-save helper tasks and feature-test wiring. |
+| `core/build.gradle` | 10 | 1 | Add core recovery-save test/report configuration. |
+| `core/src/main/assets/messages/scenes/scenes.properties` | 2 | 0 | Add Recover button text. |
+| `core/src/main/assets/messages/windows/windows.properties` | 13 | 0 | Add recovery-window and confirmation text. |
+| `core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/Dungeon.java` | 4 | 1 | Preserve a slot before destructive `deleteGame` work. |
+| `core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/RecoveryManager.java` | 141 | 0 | Add recovery creation, listing, restore, slot parsing, copying, and pruning. |
+| `core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/scenes/StartScene.java` | 27 | 0 | Show the Recover button when recovery entries exist. |
+| `core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/windows/WndRecoverySave.java` | 146 | 0 | Add UI to list, age-label, confirm, and restore recovery entries. |
+| `core/src/test/java/com/shatteredpixel/shatteredpixeldungeon/RecoveryManagerTest.java` | 200 | 0 | Unit coverage for manager parsing, listing, copying, and pruning paths. |
+| `core/src/integrationTest/java/com/shatteredpixel/shatteredpixeldungeon/RecoverySavesIntegrationTest.java` | 194 | 0 | Integration coverage for end-to-end move, restore, overwrite, and retention workflows. |
+| `doc/recovery-saves/README.md` | 192 | 0 | Feature documentation. |
+| `doc/recovery-saves/integration_test_plan.md` | 70 | 0 | Integration test plan. |
+| `doc/recovery-saves/test_plan.md` | 231 | 0 | Overall test plan. |
+| `doc/recovery-saves/unit_test_plan.md` | 90 | 0 | Unit test plan. |
+
+Implementation paragraph: recovery saves are implemented by intercepting deletion before existing destructive save-slot cleanup runs. `Dungeon.deleteGame` calls `RecoveryManager.moveToRecovery(save)`, which copies each flat file from the target `gameN` slot into a timestamped `recovery/<timestamp>_gameN` directory and prunes older entries so only five remain. `RecoveryManager.listRecoveryEntries` returns sortable recovery directories, `slotFromEntryName` derives the original slot, and `restoreEntry` deletes the target slot, copies the recovery files back, invalidates `GamesInProgress`, and refreshes the save manifest best-effort. The start scene conditionally adds a Recover button, and `WndRecoverySave` presents newest entries first, formats their age, confirms overwriting occupied slots, and switches back to the start scene after restore.
 
 ### Changed Function Complexity
 
