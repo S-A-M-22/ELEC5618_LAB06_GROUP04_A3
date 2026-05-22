@@ -26,6 +26,7 @@ import com.shatteredpixel.shatteredpixeldungeon.Badges;
 import com.shatteredpixel.shatteredpixeldungeon.Chrome;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.GamesInProgress;
+import com.shatteredpixel.shatteredpixeldungeon.RecoveryManager;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.effects.BannerSprites;
@@ -118,7 +119,7 @@ public class TitleScene extends PixelScene {
 		StyledButton btnPlay = new StyledButton(GREY_TR, Messages.get(this, "enter")){
 			@Override
 			protected void onClick() {
-				if (GamesInProgress.checkAll().size() == 0){
+				if (GamesInProgress.checkAll().size() == 0 && RecoveryManager.listRecoveryEntries().isEmpty()){
 					GamesInProgress.selectedClass = null;
 					GamesInProgress.curSlot = 1;
 					ShatteredPixelDungeon.switchScene(HeroSelectScene.class);
