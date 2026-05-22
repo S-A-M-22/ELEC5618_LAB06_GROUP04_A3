@@ -93,8 +93,8 @@ checksum_code_present() {
     && grep -q 'verifyChecksum(jsonObject)' "$bundle_java"
 }
 
-generate_checksum_fixture() {
-  python3 - "$repo_root" <<'PY'
+generate_fixture() {
+  python3 - "$repo_root" "$1" <<'PY'
 import importlib.util
 import pathlib
 import sys
@@ -103,11 +103,13 @@ import tempfile
 sys.dont_write_bytecode = True
 
 repo_root = pathlib.Path(sys.argv[1])
+emit_checksums = sys.argv[2] == "1"
 script = repo_root / "scripts" / "create_quality_save_fixtures.py"
 
 spec = importlib.util.spec_from_file_location("quality_fixture_generator", script)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+module.EMIT_BUNDLE_CHECKSUMS = emit_checksums
 
 fixture_root = pathlib.Path(tempfile.mkdtemp(prefix="spd-quality-fixtures-"))
 module.ROOT = fixture_root
@@ -120,13 +122,14 @@ PY
 
 if checksum_code_present; then
   echo "Checksum-enabled code detected; generating fresh stale-checksum fixtures."
-  fixture="$(generate_checksum_fixture | tail -n 1)"
+  fixture="$(generate_fixture 1 | tail -n 1)"
 elif [ -n "$fixture_arg" ]; then
   fixture="$fixture_arg"
 elif [ -n "${FIXTURE:-}" ]; then
   fixture="$FIXTURE"
 else
-  fixture="$(find_latest_fixture)"
+  echo "Checksum code not detected; generating original-format fixtures."
+  fixture="$(generate_fixture 0 | tail -n 1)"
 fi
 
 case "$fixture" in

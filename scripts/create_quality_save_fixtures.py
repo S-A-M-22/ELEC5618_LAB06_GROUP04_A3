@@ -54,6 +54,36 @@ STALE_CHECKSUM_SCENARIOS = {
 
 CHECKSUM_KEY = "__checksum"
 CHECKSUM_PREFIX = "sha256:"
+EMIT_BUNDLE_CHECKSUMS: bool | None = None
+
+
+def target_has_checksum_code(root: Path | None = None) -> bool:
+    root = ROOT if root is None else root
+    bundle_java = (
+        root
+        / "shattered-pixel-dungeon-3.0.2"
+        / "SPD-classes"
+        / "src"
+        / "main"
+        / "java"
+        / "com"
+        / "watabou"
+        / "utils"
+        / "Bundle.java"
+    )
+    if not bundle_java.is_file():
+        return False
+    source = bundle_java.read_text(encoding="utf-8", errors="ignore")
+    return (
+        'private static final String CHECKSUM = "__checksum"' in source
+        and "verifyChecksum(jsonObject)" in source
+    )
+
+
+def emit_bundle_checksums() -> bool:
+    if EMIT_BUNDLE_CHECKSUMS is not None:
+        return EMIT_BUNDLE_CHECKSUMS
+    return target_has_checksum_code()
 
 
 LIMITED_DROPS = [
@@ -377,15 +407,19 @@ def signed_data(data: dict, checksum_override: str | None = None) -> dict:
 
 def write_bundle(path: Path, data: dict, checksum_override: str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = signed_json(data, checksum_override).encode("utf-8")
+    if emit_bundle_checksums():
+        payload = signed_json(data, checksum_override).encode("utf-8")
+    else:
+        payload = json.dumps(data, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     with gzip.GzipFile(filename=str(path), mode="wb", mtime=0) as archive:
         archive.write(payload)
 
 
 def write_json(path: Path, data: dict, checksum_override: str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    mirror_data = signed_data(data, checksum_override) if emit_bundle_checksums() else data
     path.write_text(
-        json.dumps(signed_data(data, checksum_override), indent=2, sort_keys=True, ensure_ascii=True) + "\n",
+        json.dumps(mirror_data, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
 
@@ -432,8 +466,9 @@ def build_slot_metrics(
     modified_path: Path,
     modified_depth_path: Path,
     modified_depth: dict,
-    stored_game_checksum: str,
-    stored_depth_checksum: str,
+    stored_game_checksum: str | None,
+    stored_depth_checksum: str | None,
+    checksums_emitted: bool,
 ) -> dict:
     current_depth_file = f"depth{modified['depth']}.dat"
     modified_slot = modified_path.parent
@@ -459,16 +494,17 @@ def build_slot_metrics(
         "copy_matches_regular": hashlib.sha256(regular_path.read_bytes()).hexdigest()
         == hashlib.sha256(copy_path.read_bytes()).hexdigest(),
         "bundle_checksum_state": {
-            "stale_checksum_from_original_save": scenario["name"] in STALE_CHECKSUM_SCENARIOS,
+            "checksums_emitted": checksums_emitted,
+            "stale_checksum_from_original_save": checksums_emitted and scenario["name"] in STALE_CHECKSUM_SCENARIOS,
             "game": {
                 "stored": stored_game_checksum,
                 "actual": actual_game_checksum,
-                "matches": stored_game_checksum == actual_game_checksum,
+                "matches": stored_game_checksum == actual_game_checksum if checksums_emitted else None,
             },
             "depth1": {
                 "stored": stored_depth_checksum,
                 "actual": actual_depth_checksum,
-                "matches": stored_depth_checksum == actual_depth_checksum,
+                "matches": stored_depth_checksum == actual_depth_checksum if checksums_emitted else None,
             },
         },
         "quality_issue_deltas": {
@@ -504,8 +540,10 @@ def build_slot_metrics(
 }
 
 
-def build_metrics(slot_metrics: list[dict]) -> dict:
+def build_metrics(slot_metrics: list[dict], checksums_emitted: bool) -> dict:
     return {
+        "fixture_mode": "checksum" if checksums_emitted else "original",
+        "checksums_emitted": checksums_emitted,
         "slots": {
             f"game{metrics['slot']}": metrics
             for metrics in slot_metrics
@@ -531,7 +569,42 @@ def depth_for_scenario(scenario: dict) -> dict:
     raise ValueError(f"Unknown scenario: {name}")
 
 
-def write_readme(path: Path) -> None:
+def write_readme(path: Path, checksums_emitted: bool) -> None:
+    checksum_lines = [
+        "The `.dat` files are gzipped JSON bundles with root `__checksum` fields matching the current",
+        "save-integrity implementation.",
+        "The adjacent `.json` files are readable mirrors for inspection and diffing.",
+        "",
+        "`modified/game2` and `modified/game3` intentionally keep the `depth1.dat` stored `__checksum`",
+        "from `modified/game1` after their depth payloads are edited. Their `game.dat` files are",
+        "re-signed so all three save slots remain visible; the current build rejects slots 2 and 3",
+        "when it tries to load the modified depth bundle.",
+        "The checksum state and behavior deltas are captured in `metrics.json`.",
+    ]
+    legacy_lines = [
+        "The `.dat` files are gzipped JSON bundles without root `__checksum` fields, matching the",
+        "original benchmark save format.",
+        "The adjacent `.json` files are readable mirrors for inspection and diffing.",
+        "",
+        "`modified/game2` and `modified/game3` contain the same payload-level faults as the checksum",
+        "fixtures, but no checksum metadata. Original benchmark builds can open them and expose the",
+        "latent save-quality issues that the checksum benchmark is expected to block.",
+        "The fixture mode and behavior deltas are captured in `metrics.json`.",
+    ]
+    modified_summary_lines = (
+        [
+            "- `modified/game1`: the signed original save.",
+            "- `modified/game2`: the `DOWN-TO-DEPTH-999` save with a valid slot header and stale depth checksum.",
+            "- `modified/game3`: the `UP-FLOOR-0-DOWN-MISSING-D2` save with a valid slot header and stale depth checksum.",
+        ]
+        if checksums_emitted
+        else [
+            "- `modified/game1`: the original save in original benchmark format.",
+            "- `modified/game2`: the `DOWN-TO-DEPTH-999` save in original benchmark format.",
+            "- `modified/game3`: the `UP-FLOOR-0-DOWN-MISSING-D2` save in original benchmark format.",
+        ]
+    )
+
     path.write_text(
         "\n".join(
             [
@@ -541,19 +614,9 @@ def write_readme(path: Path) -> None:
                 "",
                 "- `regular/gameN`: clean original starter save.",
                 "- `copy/gameN`: exact copy of that clean save.",
-                "- `modified/game1`: the signed original save.",
-                "- `modified/game2`: the `DOWN-TO-DEPTH-999` save with a valid slot header and stale depth checksum.",
-                "- `modified/game3`: the `UP-FLOOR-0-DOWN-MISSING-D2` save with a valid slot header and stale depth checksum.",
+                *modified_summary_lines,
                 "",
-                "The `.dat` files are gzipped JSON bundles with root `__checksum` fields matching the current",
-                "save-integrity implementation.",
-                "The adjacent `.json` files are readable mirrors for inspection and diffing.",
-                "",
-                "`modified/game2` and `modified/game3` intentionally keep the `depth1.dat` stored `__checksum`",
-                "from `modified/game1` after their depth payloads are edited. Their `game.dat` files are",
-                "re-signed so all three save slots remain visible; the current build rejects slots 2 and 3",
-                "when it tries to load the modified depth bundle.",
-                "The checksum state and behavior deltas are captured in `metrics.json`.",
+                *(checksum_lines if checksums_emitted else legacy_lines),
                 "",
                 "## Slot Cases",
                 "",
@@ -598,6 +661,7 @@ def main() -> None:
     regular_dir = OUT_DIR / "regular"
     copy_dir = OUT_DIR / "copy"
     modified_dir = OUT_DIR / "modified"
+    checksums_emitted = emit_bundle_checksums()
 
     original_game_data = regular_game(1, "ORIGINAL-GAME")
     original_depth_data = regular_depth()
@@ -613,8 +677,10 @@ def main() -> None:
         modified = modified_game(original_game_data, scenario)
         modified_depth_data = depth_for_scenario(scenario)
         use_stale_checksum = scenario["name"] in STALE_CHECKSUM_SCENARIOS
-        stored_game_checksum = bundle_checksum(modified)
-        stored_depth_checksum = original_depth_checksum if use_stale_checksum else bundle_checksum(modified_depth_data)
+        stored_game_checksum = bundle_checksum(modified) if checksums_emitted else None
+        stored_depth_checksum = (
+            original_depth_checksum if use_stale_checksum else bundle_checksum(modified_depth_data)
+        ) if checksums_emitted else None
         extra_depths = {}
         if scenario["name"] != "up_floor_0_down_missing_d2":
             extra_depths[2] = copy.deepcopy(original_depth2_data)
@@ -655,12 +721,13 @@ def main() -> None:
                 modified_depth_data,
                 stored_game_checksum,
                 stored_depth_checksum,
+                checksums_emitted,
             )
         )
 
-    metrics = build_metrics(slot_metrics)
+    metrics = build_metrics(slot_metrics, checksums_emitted)
     write_json(OUT_DIR / "metrics.json", metrics)
-    write_readme(OUT_DIR / "README.md")
+    write_readme(OUT_DIR / "README.md", checksums_emitted)
     print(f"Created save fixtures in {OUT_DIR.relative_to(ROOT)}")
 
 
