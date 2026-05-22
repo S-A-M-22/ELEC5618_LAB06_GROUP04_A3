@@ -3,6 +3,30 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/ELEC5618-A3.iml" filepath="$PROJECT_DIR$/.idea/ELEC5618-A3.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/SPD-classes/shattered-pixel-dungeon-3.0.2.SPD-classes.iml" filepath="$PROJECT_DIR$/.idea/modules/SPD-classes/shattered-pixel-dungeon-3.0.2.SPD-classes.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/SPD-classes/shattered-pixel-dungeon-3.0.2.SPD-classes.main.iml" filepath="$PROJECT_DIR$/.idea/modules/SPD-classes/shattered-pixel-dungeon-3.0.2.SPD-classes.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/SPD-classes/shattered-pixel-dungeon-3.0.2.SPD-classes.test.iml" filepath="$PROJECT_DIR$/.idea/modules/SPD-classes/shattered-pixel-dungeon-3.0.2.SPD-classes.test.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/android/shattered-pixel-dungeon-3.0.2.android.androidTest.iml" filepath="$PROJECT_DIR$/.idea/modules/android/shattered-pixel-dungeon-3.0.2.android.androidTest.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/android/shattered-pixel-dungeon-3.0.2.android.main.iml" filepath="$PROJECT_DIR$/.idea/modules/android/shattered-pixel-dungeon-3.0.2.android.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/android/shattered-pixel-dungeon-3.0.2.android.unitTest.iml" filepath="$PROJECT_DIR$/.idea/modules/android/shattered-pixel-dungeon-3.0.2.android.unitTest.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/core/shattered-pixel-dungeon-3.0.2.core.iml" filepath="$PROJECT_DIR$/.idea/modules/core/shattered-pixel-dungeon-3.0.2.core.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/core/shattered-pixel-dungeon-3.0.2.core.main.iml" filepath="$PROJECT_DIR$/.idea/modules/core/shattered-pixel-dungeon-3.0.2.core.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/desktop/shattered-pixel-dungeon-3.0.2.desktop.iml" filepath="$PROJECT_DIR$/.idea/modules/desktop/shattered-pixel-dungeon-3.0.2.desktop.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/desktop/shattered-pixel-dungeon-3.0.2.desktop.main.iml" filepath="$PROJECT_DIR$/.idea/modules/desktop/shattered-pixel-dungeon-3.0.2.desktop.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/ios/shattered-pixel-dungeon-3.0.2.ios.iml" filepath="$PROJECT_DIR$/.idea/modules/ios/shattered-pixel-dungeon-3.0.2.ios.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/ios/shattered-pixel-dungeon-3.0.2.ios.main.iml" filepath="$PROJECT_DIR$/.idea/modules/ios/shattered-pixel-dungeon-3.0.2.ios.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/shattered-pixel-dungeon-3.0.2.services.iml" filepath="$PROJECT_DIR$/.idea/modules/services/shattered-pixel-dungeon-3.0.2.services.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/shattered-pixel-dungeon-3.0.2.services.main.iml" filepath="$PROJECT_DIR$/.idea/modules/services/shattered-pixel-dungeon-3.0.2.services.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/news/shattered-pixel-dungeon-3.0.2.services.news.iml" filepath="$PROJECT_DIR$/.idea/modules/services/news/shattered-pixel-dungeon-3.0.2.services.news.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/news/debugNews/shattered-pixel-dungeon-3.0.2.services.news.debugNews.iml" filepath="$PROJECT_DIR$/.idea/modules/services/news/debugNews/shattered-pixel-dungeon-3.0.2.services.news.debugNews.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/news/debugNews/shattered-pixel-dungeon-3.0.2.services.news.debugNews.main.iml" filepath="$PROJECT_DIR$/.idea/modules/services/news/debugNews/shattered-pixel-dungeon-3.0.2.services.news.debugNews.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/news/shatteredNews/shattered-pixel-dungeon-3.0.2.services.news.shatteredNews.iml" filepath="$PROJECT_DIR$/.idea/modules/services/news/shatteredNews/shattered-pixel-dungeon-3.0.2.services.news.shatteredNews.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/news/shatteredNews/shattered-pixel-dungeon-3.0.2.services.news.shatteredNews.main.iml" filepath="$PROJECT_DIR$/.idea/modules/services/news/shatteredNews/shattered-pixel-dungeon-3.0.2.services.news.shatteredNews.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/updates/shattered-pixel-dungeon-3.0.2.services.updates.iml" filepath="$PROJECT_DIR$/.idea/modules/services/updates/shattered-pixel-dungeon-3.0.2.services.updates.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/updates/debugUpdates/shattered-pixel-dungeon-3.0.2.services.updates.debugUpdates.iml" filepath="$PROJECT_DIR$/.idea/modules/services/updates/debugUpdates/shattered-pixel-dungeon-3.0.2.services.updates.debugUpdates.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/updates/debugUpdates/shattered-pixel-dungeon-3.0.2.services.updates.debugUpdates.main.iml" filepath="$PROJECT_DIR$/.idea/modules/services/updates/debugUpdates/shattered-pixel-dungeon-3.0.2.services.updates.debugUpdates.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/updates/githubUpdates/shattered-pixel-dungeon-3.0.2.services.updates.githubUpdates.iml" filepath="$PROJECT_DIR$/.idea/modules/services/updates/githubUpdates/shattered-pixel-dungeon-3.0.2.services.updates.githubUpdates.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/services/updates/githubUpdates/shattered-pixel-dungeon-3.0.2.services.updates.githubUpdates.main.iml" filepath="$PROJECT_DIR$/.idea/modules/services/updates/githubUpdates/shattered-pixel-dungeon-3.0.2.services.updates.githubUpdates.main.iml" />
     </modules>
   </component>
 </project>

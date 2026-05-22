@@ -24,47 +24,36 @@ SAVE_TIME_MS = int(datetime(2026, 5, 14, 0, 0, tzinfo=timezone.utc).timestamp() 
 SCENARIOS = [
     {
         "slot": 1,
-        "name": "missing_generated_depth",
-        "seed_label": "UP-FLOOR-0-DOWN-MISSING-D2",
-        "title": "Missing generated depth file",
-        "summary": "Depth 2 is marked as generated, but `depth2.dat` is absent. Descending crashes later.",
+        "name": "original_game",
+        "seed_label": "ORIGINAL-GAME",
+        "title": "Original game",
+        "summary": "A clean first-floor starter save with valid bundle checksums.",
     },
     {
         "slot": 2,
-        "name": "same_floor_loop",
-        "seed_label": "DOWN-RELOADS-FLOOR-1",
-        "title": "Same-floor descent loop",
-        "summary": "The down ladder points back to depth 1, so descending reloads the same floor.",
+        "name": "down_to_depth_999",
+        "seed_label": "DOWN-TO-DEPTH-999",
+        "title": "Down ladder to depth 999",
+        "summary": "Only the down ladder points to depth 999, while the depth file keeps the original stored checksum.",
     },
     {
         "slot": 3,
-        "name": "out_of_range_depth",
-        "seed_label": "DOWN-TO-DEPTH-999",
-        "title": "Out-of-range destination depth",
-        "summary": "The down ladder points to depth 999, forcing the fallback `DeadEndLevel` path.",
-    },
-    {
-        "slot": 4,
-        "name": "unbound_exit_tile",
-        "seed_label": "VISIBLE-DOWN-NO-TRANSITION",
-        "title": "Exit tile without transition",
-        "summary": "The visible down ladder tile has no transition, so it behaves like ordinary floor.",
-    },
-    {
-        "slot": 5,
-        "name": "invisible_transition",
-        "seed_label": "HIDDEN-FLOOR-TILE-DESCENDS",
-        "title": "Transition detached from visible ladder",
-        "summary": "The visible down ladder does nothing, while an ordinary floor tile secretly descends.",
-    },
-    {
-        "slot": 6,
-        "name": "locked_level",
-        "seed_label": "LOCKED-LEVEL-STAIRS-BLOCKED",
-        "title": "Locked level with normal-looking ladders",
-        "summary": "The floor is flagged locked, so visible transitions refuse to activate.",
+        "name": "up_floor_0_down_missing_d2",
+        "seed_label": "UP-FLOOR-0-DOWN-MISSING-D2",
+        "title": "Up floor 0 and missing depth 2",
+        "summary": "The save uses a descriptive seed and marks depth 2 as generated; the upstairs ladder targets floor 0 while the depth file keeps the original stored checksum.",
     },
 ]
+
+
+STALE_CHECKSUM_SCENARIOS = {
+    "down_to_depth_999",
+    "up_floor_0_down_missing_d2",
+}
+
+
+CHECKSUM_KEY = "__checksum"
+CHECKSUM_PREFIX = "sha256:"
 
 
 LIMITED_DROPS = [
@@ -205,7 +194,7 @@ def regular_game(slot: int = 1, custom_seed: str = "QUALITY-BASELINE") -> dict:
         "pit_needed": 0,
         "secret_rooms": [],
         "region_secrets": [],
-        "generated_levels": [1],
+        "generated_levels": [1, 2],
         "nextid": 2,
         "badges": {
             "badges": [],
@@ -236,9 +225,9 @@ def transition(cell: int, kind: str, dest_depth: int, dest_type: str | None) -> 
 
 def regular_depth(
     *,
-    entrance_type: str = "REGULAR_ENTRANCE",
+    entrance_type: str = "SURFACE",
     entrance_dest_depth: int = 0,
-    entrance_dest_type: str | None = "REGULAR_EXIT",
+    entrance_dest_type: str | None = None,
     exit_cell: int | None = 13,
     exit_dest_depth: int = 2,
     exit_dest_type: str | None = "REGULAR_ENTRANCE",
@@ -288,6 +277,8 @@ def regular_depth(
         transitions.append(transition(exit_cell, "REGULAR_EXIT", exit_dest_depth, exit_dest_type))
     if hidden_exit_cell is not None:
         transitions.append(transition(hidden_exit_cell, "REGULAR_EXIT", exit_dest_depth, exit_dest_type))
+    if exit_cell is None:
+        level_map[13] = empty
 
     return {
         "level": {
@@ -316,10 +307,9 @@ def regular_depth(
 
 def modified_game(game: dict, scenario: dict) -> dict:
     result = copy.deepcopy(game)
-
     result["custom_seed"] = scenario["seed_label"]
 
-    if scenario["name"] == "missing_generated_depth":
+    if scenario["name"] == "up_floor_0_down_missing_d2":
         # Latent corruption: the current depth remains valid, but the game will
         # later believe depth 2 has already been generated and try to load a
         # missing depth2.dat when the player descends.
@@ -328,16 +318,76 @@ def modified_game(game: dict, scenario: dict) -> dict:
     return result
 
 
-def write_bundle(path: Path, data: dict) -> None:
+def regular_depth2() -> dict:
+    return regular_depth(
+        entrance_type="REGULAR_ENTRANCE",
+        entrance_dest_depth=1,
+        entrance_dest_type="REGULAR_EXIT",
+        exit_cell=None,
+    )
+
+
+def quote_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+
+
+def canonical_json(value, *, root: bool = False, checksum: str | None = None) -> str:
+    if isinstance(value, dict):
+        keys = [
+            key
+            for key in value.keys()
+            if not (root and key == CHECKSUM_KEY)
+        ]
+        if root and checksum is not None:
+            keys.append(CHECKSUM_KEY)
+        keys.sort()
+
+        parts = []
+        for key in keys:
+            item = checksum if root and key == CHECKSUM_KEY and checksum is not None else value[key]
+            parts.append(f"{quote_string(key)}:{canonical_json(item)}")
+        return "{" + ",".join(parts) + "}"
+
+    if isinstance(value, list):
+        return "[" + ",".join(canonical_json(item) for item in value) + "]"
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return quote_string(str(value))
+
+
+def bundle_checksum(data: dict) -> str:
+    unsigned = canonical_json(data, root=True)
+    return CHECKSUM_PREFIX + hashlib.sha256(unsigned.encode("utf-8")).hexdigest()
+
+
+def signed_json(data: dict, checksum_override: str | None = None) -> str:
+    checksum = checksum_override if checksum_override is not None else bundle_checksum(data)
+    return canonical_json(data, root=True, checksum=checksum)
+
+
+def signed_data(data: dict, checksum_override: str | None = None) -> dict:
+    result = copy.deepcopy(data)
+    result[CHECKSUM_KEY] = checksum_override if checksum_override is not None else bundle_checksum(data)
+    return result
+
+
+def write_bundle(path: Path, data: dict, checksum_override: str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(data, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    payload = signed_json(data, checksum_override).encode("utf-8")
     with gzip.GzipFile(filename=str(path), mode="wb", mtime=0) as archive:
         archive.write(payload)
 
 
-def write_json(path: Path, data: dict) -> None:
+def write_json(path: Path, data: dict, checksum_override: str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(signed_data(data, checksum_override), indent=2, sort_keys=True, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def file_info(path: Path) -> dict:
@@ -349,12 +399,24 @@ def file_info(path: Path) -> dict:
     }
 
 
-def write_slot(base: Path, slot_number: int, game_data: dict, depth_data: dict) -> None:
+def write_slot(
+    base: Path,
+    slot_number: int,
+    game_data: dict,
+    depth_data: dict,
+    *,
+    game_checksum: str | None = None,
+    depth_checksum: str | None = None,
+    extra_depths: dict[int, dict] | None = None,
+) -> None:
     slot = base / f"game{slot_number}"
-    write_bundle(slot / "game.dat", game_data)
-    write_bundle(slot / "depth1.dat", depth_data)
-    write_json(slot / "game.json", game_data)
-    write_json(slot / "depth1.json", depth_data)
+    write_bundle(slot / "game.dat", game_data, game_checksum)
+    write_bundle(slot / "depth1.dat", depth_data, depth_checksum)
+    write_json(slot / "game.json", game_data, game_checksum)
+    write_json(slot / "depth1.json", depth_data, depth_checksum)
+    for depth, depth_bundle in sorted((extra_depths or {}).items()):
+        write_bundle(slot / f"depth{depth}.dat", depth_bundle)
+        write_json(slot / f"depth{depth}.json", depth_bundle)
 
 
 def branchless_depth_file_name(depth: int) -> str:
@@ -368,7 +430,10 @@ def build_slot_metrics(
     regular_path: Path,
     copy_path: Path,
     modified_path: Path,
+    modified_depth_path: Path,
     modified_depth: dict,
+    stored_game_checksum: str,
+    stored_depth_checksum: str,
 ) -> dict:
     current_depth_file = f"depth{modified['depth']}.dat"
     modified_slot = modified_path.parent
@@ -378,16 +443,34 @@ def build_slot_metrics(
         if depth != modified["depth"] and not (modified_slot / branchless_depth_file_name(depth)).exists()
     ]
     transitions = modified_depth["level"]["transitions"]
+    actual_game_checksum = bundle_checksum(modified)
+    actual_depth_checksum = bundle_checksum(modified_depth)
     return {
+        "slot": scenario["slot"],
         "name": scenario["name"],
+        "case_label": scenario["seed_label"],
         "custom_seed": modified["custom_seed"],
         "title": scenario["title"],
         "summary": scenario["summary"],
         "regular_game_dat": file_info(regular_path),
         "copied_game_dat": file_info(copy_path),
         "modified_game_dat": file_info(modified_path),
+        "modified_depth1_dat": file_info(modified_depth_path),
         "copy_matches_regular": hashlib.sha256(regular_path.read_bytes()).hexdigest()
         == hashlib.sha256(copy_path.read_bytes()).hexdigest(),
+        "bundle_checksum_state": {
+            "stale_checksum_from_original_save": scenario["name"] in STALE_CHECKSUM_SCENARIOS,
+            "game": {
+                "stored": stored_game_checksum,
+                "actual": actual_game_checksum,
+                "matches": stored_game_checksum == actual_game_checksum,
+            },
+            "depth1": {
+                "stored": stored_depth_checksum,
+                "actual": actual_depth_checksum,
+                "matches": stored_depth_checksum == actual_depth_checksum,
+            },
+        },
         "quality_issue_deltas": {
             "initial_load_depth": {
                 "regular": regular["depth"],
@@ -424,48 +507,26 @@ def build_slot_metrics(
 def build_metrics(slot_metrics: list[dict]) -> dict:
     return {
         "slots": {
-            f"game{index + 1}": metrics
-            for index, metrics in enumerate(slot_metrics)
+            f"game{metrics['slot']}": metrics
+            for metrics in slot_metrics
         },
     }
 
 
 def depth_for_scenario(scenario: dict) -> dict:
     name = scenario["name"]
-    if name == "missing_generated_depth":
+    if name == "original_game":
         return regular_depth()
-    if name == "same_floor_loop":
+    if name == "down_to_depth_999":
         return regular_depth(
-            entrance_type="SURFACE",
-            entrance_dest_type=None,
-            exit_dest_depth=1,
-            exit_dest_type="REGULAR_ENTRANCE",
-        )
-    if name == "out_of_range_depth":
-        return regular_depth(
-            entrance_type="SURFACE",
-            entrance_dest_type=None,
             exit_dest_depth=999,
             exit_dest_type="REGULAR_ENTRANCE",
         )
-    if name == "unbound_exit_tile":
+    if name == "up_floor_0_down_missing_d2":
         return regular_depth(
-            entrance_type="SURFACE",
-            entrance_dest_type=None,
-            exit_cell=None,
-        )
-    if name == "invisible_transition":
-        return regular_depth(
-            entrance_type="SURFACE",
-            entrance_dest_type=None,
-            exit_cell=None,
-            hidden_exit_cell=17,
-        )
-    if name == "locked_level":
-        return regular_depth(
-            entrance_type="SURFACE",
-            entrance_dest_type=None,
-            locked=True,
+            entrance_type="REGULAR_ENTRANCE",
+            entrance_dest_depth=0,
+            entrance_dest_type="REGULAR_EXIT",
         )
     raise ValueError(f"Unknown scenario: {name}")
 
@@ -476,75 +537,53 @@ def write_readme(path: Path) -> None:
             [
                 "# Game Save Quality Fixture",
                 "",
-                "This directory contains baseline, copied, and modified save states for slots `game1` through `game6`:",
+                "This directory contains baseline, copied, and modified save states for slots `game1` through `game3`:",
                 "",
-                "- `regular/gameN`: baseline starter save for the matching slot.",
-                "- `copy/gameN`: exact copy of that slot's baseline save.",
-                "- `modified/gameN`: edited copy with a slot-specific latent quality issue.",
+                "- `regular/gameN`: clean original starter save.",
+                "- `copy/gameN`: exact copy of that clean save.",
+                "- `modified/game1`: the signed original save.",
+                "- `modified/game2`: the `DOWN-TO-DEPTH-999` save with a valid slot header and stale depth checksum.",
+                "- `modified/game3`: the `UP-FLOOR-0-DOWN-MISSING-D2` save with a valid slot header and stale depth checksum.",
                 "",
-                "The `.dat` files are gzipped JSON bundles, matching the save container used by Shattered Pixel Dungeon.",
+                "The `.dat` files are gzipped JSON bundles with root `__checksum` fields matching the current",
+                "save-integrity implementation.",
                 "The adjacent `.json` files are readable mirrors for inspection and diffing.",
                 "",
-                "Each modified save keeps the current depth and hero state valid so slot preview and initial load can",
-                "succeed. The faults are delayed until the player interacts with stairs or level transitions.",
-                "The modified `custom_seed` value is a short behavior label for what the save is meant to demonstrate.",
-                "The changes are captured in `metrics.json` so the latent degradation is measurable.",
+                "`modified/game2` and `modified/game3` intentionally keep the `depth1.dat` stored `__checksum`",
+                "from `modified/game1` after their depth payloads are edited. Their `game.dat` files are",
+                "re-signed so all three save slots remain visible; the current build rejects slots 2 and 3",
+                "when it tries to load the modified depth bundle.",
+                "The checksum state and behavior deltas are captured in `metrics.json`.",
                 "",
                 "## Slot Cases",
                 "",
                 *[
-                    f"- `modified/game{scenario['slot']}` seed `{scenario['seed_label']}`: "
+                    f"- `modified/game{scenario['slot']}` label `{scenario['seed_label']}`: "
                     f"{scenario['title']} - {scenario['summary']}"
                     for scenario in SCENARIOS
                 ],
                 "",
                 "## Case Design",
                 "",
-                "- `modified/game1` keeps `depth` at 1 and includes a valid `depth1.dat`, so the slot preview",
-                "  and first load have a complete current floor. The latent fault is split across two transition",
-                "  paths: the upstairs ladder is stored as `REGULAR_ENTRANCE`, which makes floor 1 go to depth 0;",
-                "  the downstairs ladder points to depth 2 while `generated_levels` says depth 2 already exists,",
-                "  but no `depth2.dat` is present. The game therefore passes initial save checks and only fails",
-                "  after the player uses the downstairs transition.",
+                "- `modified/game1` is a clean two-floor save. Floor 1 has a `SURFACE` upstairs transition",
+                "  and a downstairs transition to depth 2. `depth2.dat` is present and has an upstairs",
+                "  transition back to floor 1, so using the stairs does not require procedural generation.",
+                "  `game.dat`, `depth1.dat`, and `depth2.dat` all have matching bundle checksums.",
                 "",
-                "- `modified/game2` keeps the floor file complete but changes the down-ladder transition target",
-                "  from depth 2 to depth 1. The transition remains a normal `REGULAR_EXIT`, so it looks like an",
-                "  ordinary staircase interaction. Activating it reloads the same depth instead of advancing,",
-                "  which creates a measurable progression loop without corrupting the initial load.",
+                "- `modified/game2` uses custom seed `DOWN-TO-DEPTH-999` and changes the down-ladder",
+                "  destination to depth 999. Its `game.dat` checksum is valid so the slot is visible,",
+                "  but `depth1.dat` keeps the original checksum and is rejected by the current benchmark.",
                 "",
-                "- `modified/game3` keeps the current depth valid and changes only the down-ladder destination",
-                "  to depth 999. Because the bad value is in transition metadata rather than the current save",
-                "  header, loading starts normally. The fault appears only when the player descends and the",
-                "  dungeon code has to resolve an impossible destination depth.",
+                "- `modified/game3` uses custom seed `UP-FLOOR-0-DOWN-MISSING-D2`, marks depth 2 as",
+                "  generated without including `depth2.dat`, and changes the upstairs transition from",
+                "  `SURFACE` to `REGULAR_ENTRANCE`, which targets floor 0 from depth 1. Its `game.dat`",
+                "  checksum is valid, but `depth1.dat` keeps the original checksum and is rejected.",
                 "",
-                "- `modified/game4` leaves the visual exit tile in the map but removes the matching transition",
-                "  entry. The floor can be loaded and displayed because the map itself is valid. The quality",
-                "  issue is delayed until interaction: the player sees a down ladder, but the game has no",
-                "  transition bound to that cell.",
+                "## Checksum Behavior",
                 "",
-                "- `modified/game5` intentionally separates visual presentation from transition metadata.",
-                "  The visible down-ladder tile has no transition, while cell 17, which looks like ordinary",
-                "  floor, contains a hidden `REGULAR_EXIT` transition. This keeps save parsing and rendering",
-                "  valid while making movement behavior disagree with what the map shows.",
-                "",
-                "- `modified/game6` leaves both visible ladder transitions structurally normal but marks the",
-                "  level as `locked`. The save loads because `locked` is a valid level flag. The issue appears",
-                "  during play, when transition activation is refused even though the ladders look usable.",
-                "",
-                "## Transition Behavior",
-                "",
-                "In `modified/game1`, the first-floor upstairs ladder is intentionally stored as `REGULAR_ENTRANCE`,",
-                "not `SURFACE`. In the game code, a regular entrance computes its destination as the current depth",
-                "minus one. From floor 1, that sends the player to depth 0.",
-                "",
-                "Depth 0 is outside the normal dungeon range, so `Dungeon.newLevel()` falls back to `DeadEndLevel`.",
-                "`DeadEndLevel` contains one regular entrance ladder. Taking it repeats the same depth-minus-one",
-                "calculation, producing floor -1, then -2, and so on.",
-                "",
-                "The `modified/game1` downstairs path is different. The save marks depth 2 as already generated in",
-                "`generated_levels`, but `modified/game1` does not contain `depth2.dat`. When the player descends,",
-                "the game tries to load that missing generated level instead of creating a new one, which triggers",
-                "the delayed failure.",
+                "The current implementation validates `__checksum` against the canonical JSON payload before",
+                "restoring a bundle. Slots 2 and 3 keep slot 1's stored depth checksum after their depth",
+                "contents change, so their expected depth checksum no longer matches their actual payload.",
                 "",
             ]
         ),
@@ -560,17 +599,49 @@ def main() -> None:
     copy_dir = OUT_DIR / "copy"
     modified_dir = OUT_DIR / "modified"
 
+    original_game_data = regular_game(1, "ORIGINAL-GAME")
+    original_depth_data = regular_depth()
+    original_depth2_data = regular_depth2()
+    original_game_checksum = bundle_checksum(original_game_data)
+    original_depth_checksum = bundle_checksum(original_depth_data)
+
     slot_metrics = []
     for scenario in SCENARIOS:
         slot_number = scenario["slot"]
-        regular = regular_game(slot_number, f"BASELINE-SLOT-{slot_number}-NO-FAULT")
-        regular_depth_data = regular_depth()
-        modified = modified_game(regular, scenario)
+        regular = copy.deepcopy(original_game_data)
+        regular_depth_data = copy.deepcopy(original_depth_data)
+        modified = modified_game(original_game_data, scenario)
         modified_depth_data = depth_for_scenario(scenario)
+        use_stale_checksum = scenario["name"] in STALE_CHECKSUM_SCENARIOS
+        stored_game_checksum = bundle_checksum(modified)
+        stored_depth_checksum = original_depth_checksum if use_stale_checksum else bundle_checksum(modified_depth_data)
+        extra_depths = {}
+        if scenario["name"] != "up_floor_0_down_missing_d2":
+            extra_depths[2] = copy.deepcopy(original_depth2_data)
 
-        write_slot(regular_dir, slot_number, regular, regular_depth_data)
-        write_slot(copy_dir, slot_number, copy.deepcopy(regular), copy.deepcopy(regular_depth_data))
-        write_slot(modified_dir, slot_number, modified, modified_depth_data)
+        write_slot(
+            regular_dir,
+            slot_number,
+            regular,
+            regular_depth_data,
+            extra_depths={2: copy.deepcopy(original_depth2_data)},
+        )
+        write_slot(
+            copy_dir,
+            slot_number,
+            copy.deepcopy(regular),
+            copy.deepcopy(regular_depth_data),
+            extra_depths={2: copy.deepcopy(original_depth2_data)},
+        )
+        write_slot(
+            modified_dir,
+            slot_number,
+            modified,
+            modified_depth_data,
+            game_checksum=stored_game_checksum if use_stale_checksum else None,
+            depth_checksum=stored_depth_checksum if use_stale_checksum else None,
+            extra_depths=extra_depths,
+        )
 
         slot_metrics.append(
             build_slot_metrics(
@@ -580,7 +651,10 @@ def main() -> None:
                 regular_dir / f"game{slot_number}" / "game.dat",
                 copy_dir / f"game{slot_number}" / "game.dat",
                 modified_dir / f"game{slot_number}" / "game.dat",
+                modified_dir / f"game{slot_number}" / "depth1.dat",
                 modified_depth_data,
+                stored_game_checksum,
+                stored_depth_checksum,
             )
         )
 
