@@ -31,6 +31,8 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
@@ -58,6 +60,11 @@ public class RecoveryManagerTest {
                 Files.FileType.Absolute,
                 tempFolder.getRoot().getAbsolutePath() + "/"
         );
+    }
+
+    @Test
+    public void constructor_canBeInstantiated() {
+        assertNotNull(new RecoveryManager());
     }
 
     // UT-01
@@ -114,6 +121,21 @@ public class RecoveryManagerTest {
         assertEquals("100_game1", entries.get(0));
     }
 
+    @Test
+    public void listRecoveryEntries_ignoresMalformedEntryDirectories() throws IOException {
+        File recoveryDir = tempFolder.newFolder("recovery");
+        new File(recoveryDir, "100_game1").mkdir();
+        new File(recoveryDir, "nounderscore").mkdir();
+        new File(recoveryDir, "abc_game1").mkdir();
+        new File(recoveryDir, "-100_game1").mkdir();
+        new File(recoveryDir, "200_game99").mkdir();
+
+        ArrayList<String> entries = RecoveryManager.listRecoveryEntries();
+
+        assertEquals(1, entries.size());
+        assertEquals("100_game1", entries.get(0));
+    }
+
     // UT-06
     @Test
     public void moveToRecovery_nonExistentSourceSlot_doesNothing() {
@@ -157,6 +179,19 @@ public class RecoveryManagerTest {
         File entryDir = new File(new File(tempFolder.getRoot(), "recovery"), entries.get(0));
         assertTrue(new File(entryDir, "game.dat").exists());
         assertFalse(new File(entryDir, "nested").exists());
+    }
+
+    @Test
+    public void restoreEntry_ignoresManifestUpdateIOException() throws IOException {
+        try (MockedStatic<FileUtils> fileUtils = Mockito.mockStatic(FileUtils.class)) {
+            fileUtils.when(() -> FileUtils.deleteDir("game1")).thenReturn(false);
+            fileUtils.when(() -> FileUtils.filesInDir("recovery/100_game1")).thenReturn(new ArrayList<String>());
+            fileUtils.when(FileUtils::updateSaveManifest).thenThrow(new IOException("manifest update failed"));
+
+            RecoveryManager.restoreEntry("100_game1", 1);
+
+            fileUtils.verify(() -> FileUtils.updateSaveManifest());
+        }
     }
 
     // UT-08
