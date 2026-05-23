@@ -1,10 +1,20 @@
 # ELEC5618 Assignment 3 — Software Quality Improvements
+
 ## Shattered Pixel Dungeon v3.0.2
 
-> **Course:** ELEC5618 — Software Quality Engineering  
-> **Base Project:** [Shattered Pixel Dungeon](https://github.com/00-Evan/shattered-pixel-dungeon) v3.0.2  
-> **Platform:** Android + Desktop (LibGDX / Java)  
-> **Build System:** Gradle  
+> **Course:** ELEC5618 — Software Quality Engineering
+> **Base Project:** [Shattered Pixel Dungeon](https://github.com/00-Evan/shattered-pixel-dungeon) v3.0.2
+> **Platform:** Android + Desktop, LibGDX / Java
+> **Build System:** Gradle
+> **Detailed Feature Report:** `FEATURE_COMPLEXITY_AND_TEST_REPORT.md`
+
+This repository is an Assignment 3 quality-improvement fork of **Shattered Pixel Dungeon v3.0.2**. The work focuses on three reliability, observability, and recovery features:
+
+1. **Mob Behaviour Logging** — records important mob AI events for debugging and quality assurance.
+2. **Recovery Saves** — keeps recoverable copies of deleted save slots before destructive deletion.
+3. **Save Integrity Checksum** — detects save-file corruption or tampering through bundle and manifest checksums.
+
+The goal is not to redesign the game. The goal is to improve software quality by making game behaviour more observable, making saves safer, and making deletion less destructive.
 
 ---
 
@@ -22,434 +32,553 @@
 10. [Cross-Feature Integration](#cross-feature-integration)
 11. [How to Build & Run](#how-to-build--run)
 12. [How to Run Tests](#how-to-run-tests)
-13. [Gradle Tasks Reference](#gradle-tasks-reference)
+13. [Fixture Scripts](#fixture-scripts)
+14. [Gradle Tasks Reference](#gradle-tasks-reference)
 
 ---
 
 ## Project Overview
 
-This repository applies three software quality improvements to Shattered Pixel Dungeon v3.0.2, a Java/LibGDX roguelike originally developed by Evan Debenham. Each improvement targets a distinct ISO/IEC 25010 quality characteristic and was developed on its own feature branch, reviewed by a teammate, and merged only after all tests passed.
+This project extends Shattered Pixel Dungeon with three targeted software-quality improvements.
 
-The three improvements are:
+| Feature                 | Quality Goals                                                | Explanation                                                                                                   |
+| ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Mob Behaviour Logging   | Maintainability: Analyzability; Maintainability: Testability | Makes mob AI behaviour easier to inspect, diagnose, and verify during debugging and tests. |
+| Recovery Saves          | Reliability: Recoverability                                  | Preserves deleted save slots so players have a recovery path after accidental or destructive deletion.         |
+| Save Integrity Checksum | Security: Integrity; Reliability: Fault tolerance            | Detects corrupted, stale, or externally modified protected saves and handles invalid save data safely instead of blindly loading it. |
 
-| # | Improvement | ISO/IEC 25010 Characteristic | Branch |
-|---|-------------|------------------------------|--------|
-| 1 | Mob Behaviour Logging | Maintainability / Testability | `feat/mob-behaviour-logging` |
-| 2 | Recovery Saves | Reliability / Recoverability | `feat/recovery-saves` |
-| 3 | Save Integrity Checksum | Security / Integrity | `feat/save-integrity-checksum` |
+The feature report compares each feature against the first parent of the merge commit that introduced it.
 
-All three features were integrated and verified together on the `report/merge-test` branch.
+| Feature                 | Feature Merge | Benchmark Parent | Main Changed Production Files                                                     |
+| ----------------------- | ------------: | ---------------: | --------------------------------------------------------------------------------- |
+| Mob behaviour logging   | [`7a72358`](https://github.com/S-A-M-22/ELEC5618-A3/commit/7a7235814be6a7369181bc805edb7eba18775cbd) | `7a72358^1` | `Mob.java`, `MobBehaviourLogger.java`                                             |
+| Save integrity checksum | [`43c6f42`](https://github.com/S-A-M-22/ELEC5618-A3/commit/43c6f424fc87434b7da000375abf022d26717259) | `43c6f42^1` | `Bundle.java`, `FileUtils.java`, `GameSettings.java`, `CrashReportWriter.java`    |
+| Recovery saves          | [`7811326`](https://github.com/S-A-M-22/ELEC5618-A3/commit/7811326dfb46291c9dc8688acb6ecc0b1f198520) | `7811326^1` | `Dungeon.java`, `RecoveryManager.java`, `StartScene.java`, `WndRecoverySave.java` |
 
 ---
 
 ## Repository Structure
 
-```
-ELEC5618-A3/
-├── shattered-pixel-dungeon-3.0.2/
-│   ├── core/src/main/java/com/shatteredpixel/shatteredpixeldungeon/
-│   │   ├── actors/mobs/
-│   │   │   ├── MobBehaviourLogger.java          # Improvement 1: logging singleton
-│   │   │   ├── Mob.java                          # patched: emits log events
-│   │   │   └── ...
-│   │   ├── utils/
-│   │   │   ├── RecoveryManager.java              # Improvement 2: soft-delete recovery
-│   │   │   └── SaveIntegrityManager.java         # Improvement 3: checksum manager
-│   │   └── scenes/
-│   │       └── WndRecoverySave.java              # Improvement 2: in-game recovery UI
-│   ├── core/src/test/java/
-│   │   ├── MobBehaviourLoggerTest.java
-│   │   ├── RecoveryManagerTest.java
-│   │   ├── SaveIntegrityManagerTest.java
-│   │   └── MergedFeatureIntegrationTest.java     # cross-feature integration tests
-│   └── doc/
-│       ├── mob-behaviour-logging/
-│       │   ├── implementation_work_plan.md
-│       │   └── cc_analysis.md
-│       ├── recovery-saves/
-│       │   └── README.md
-│       └── save-integrity-checksum/
-│           └── quality-issue-latent-clean.md
-├── FEATURE_COMPLEXITY_AND_TEST_REPORT.md         # full V(G) tables, FSMs, flow graphs
-├── build_presentation.js                         # PptxGenJS script → .pptx slide deck
-├── ELEC5618_A3_Presentation.html                 # print-to-PDF slide deck (browser)
-└── README.md                                     # this file
+The source checkout keeps the upstream game inside `shattered-pixel-dungeon-3.0.2/`. The files below are the assignment-specific documentation, scripts, production code, and tests referenced by the feature report.
+
+```text
+.
+├── README.md
+├── FEATURE_COMPLEXITY_AND_TEST_REPORT.md
+├── scripts/
+│   ├── README.md
+│   ├── create_quality_save_fixtures.py
+│   ├── install_empty_save_and_run.sh
+│   └── install_modified_save_and_run.sh
+└── shattered-pixel-dungeon-3.0.2/
+    ├── build.gradle
+    ├── core/
+    │   ├── src/main/java/com/shatteredpixel/shatteredpixeldungeon/
+    │   │   ├── Dungeon.java
+    │   │   ├── RecoveryManager.java
+    │   │   ├── actors/mobs/Mob.java
+    │   │   ├── actors/mobs/MobBehaviourLogger.java
+    │   │   ├── scenes/StartScene.java
+    │   │   └── windows/WndRecoverySave.java
+    │   ├── src/test/java/com/shatteredpixel/shatteredpixeldungeon/
+    │   │   ├── RecoveryManagerTest.java
+    │   │   └── actors/mobs/MobBehaviourLoggerTest.java
+    │   └── src/integrationTest/java/com/shatteredpixel/shatteredpixeldungeon/
+    │       ├── RecoverySavesIntegrationTest.java
+    │       └── actors/mobs/
+    │           ├── MobBehaviourLoggerIntegrationTest.java
+    │           └── MergedFeatureIntegrationTest.java
+    └── SPD-classes/
+        ├── src/main/java/com/watabou/utils/
+        │   ├── Bundle.java
+        │   ├── CrashReportWriter.java
+        │   ├── FileUtils.java
+        │   └── GameSettings.java
+        ├── src/test/java/com/watabou/utils/
+        │   ├── BundleTest.java
+        │   ├── CrashReportWriterTest.java
+        │   ├── FileUtilsTest.java
+        │   └── GameSettingsTest.java
+        └── src/integrationTest/java/com/watabou/utils/
+            └── FileUtilsSaveManifestIntegrationTest.java
 ```
 
 ---
 
 ## Quality Framework
 
-All improvements are classified against **ISO/IEC 25010:2023** and measured with the following tools:
+The three improvements were assessed using a software-quality framework based on:
 
-| Tool | Purpose |
-|------|---------|
-| **JaCoCo** | Line, branch, and instruction coverage |
-| **PITest** | Mutation testing — killed vs. survived mutants |
-| **SpotBugs** | Static analysis — correctness and threading bugs |
-| **Checkstyle** | Code style enforcement |
+* **Quality goal taxonomy:** each feature has one or more goals selected from the assignment quality characteristics: Functional Suitability, Reliability, Performance efficiency, Operability, Security, Compatibility, Maintainability, or Portability.
+* **User impact:** whether the change improves gameplay reliability, save safety, or debugging clarity.
+* **Complexity placement:** whether new complexity is isolated in new helper components instead of making legacy logic harder to reason about.
+* **Unit testing:** whether individual methods and edge cases are covered.
+* **Integration testing:** whether features work across file systems, save slots, game state, and UI-facing flows.
+* **Regression awareness:** whether existing behaviour is preserved where the feature should only observe or guard behaviour.
+* **Coverage evidence:** whether the feature test suite provides measurable line, branch, and instruction coverage.
 
-Cyclomatic complexity V(G) was calculated before and after each change using the standard formula V(G) = E − N + 2P. The constraint was that ΔV(G) = 0 in all **existing** methods touched by each feature.
+Cyclomatic complexity is reported as:
+
+```text
+V(G) = decisions + 1
+```
+
+Coverage evidence in the feature report comes from the Gradle project directory:
+
+```bash
+cd shattered-pixel-dungeon-3.0.2
+./gradlew featureTest --no-daemon
+```
 
 ---
 
 ## Improvement 1 — Mob Behaviour Logging
 
-### Quality Problem
+### Purpose
 
-Before this improvement, the AI decision-making inside `Mob.java` and its subclasses was entirely opaque at runtime. When a mob entered alert state, changed its AI, or acquired a new target, nothing was recorded. Reproducing and diagnosing AI bugs required attaching a debugger and manually stepping through game frames — impractical for testers and impossible in production builds.
+Mob Behaviour Logging improves observability of enemy AI behaviour. Instead of directly mutating mob state everywhere, selected mutation points now pass through helper methods that can log important events.
 
-**ISO/IEC 25010 mapping:** Maintainability → Analysability; Testability → Observability.
+The report states that the original AI decision structure is preserved: existing gameplay branches remain the same, while new complexity is contained in observational helpers and logger code.
 
-### Design
+### What It Logs
 
-A singleton class `MobBehaviourLogger` acts as the central event bus. It maintains a fixed-capacity ring buffer of `LogEntry` objects (default capacity 1 000) so memory use is bounded regardless of session length. Two sinks are supported simultaneously — a human-readable terminal stream and a UTF-8 log file — and both can be toggled independently at runtime without restarting the game.
+The logger records events such as:
 
-```
-MobBehaviourLogger (singleton)
-│
-├── configure(capacity, sinks, filePath)
-├── log(eventType, mobId, mobClass, depth, extra)        ← called from Mob.java patches
-├── getEntries() / getEntries(limit)                     ← for test assertions
-├── clear()
-└── setEnabled(boolean)
-```
+| Event Type        | Meaning                                                                   |
+| ----------------- | ------------------------------------------------------------------------- |
+| `MOB_SPAWN`       | A mob was added for the first time.                                       |
+| `STATE_CHANGE`    | A mob changed AI state, such as wandering, hunting, fleeing, or sleeping. |
+| `TARGET_ASSIGNED` | A mob target was assigned, changed, or cleared.                           |
+| `ALERT`           | A mob became alerted by a trigger.                                        |
 
-Four event types are defined as string constants on the logger:
+### Implementation Summary
 
-| Constant | Fires when… |
-|----------|-------------|
-| `EVENT_SPAWN` | a mob is added to the dungeon level |
-| `EVENT_STATE_CHANGE` | `Mob.setState()` is called with a new AI state |
-| `EVENT_ALERT` | `Mob.alerted()` is invoked |
-| `EVENT_TARGET` | `Mob.target` is assigned a non-null hero reference |
+The feature adds `MobBehaviourLogger` and helper methods in `Mob`:
 
-### Key Implementation Decisions
-
-**Zero ΔV(G) in existing methods.** Every call site in `Mob.java` was reduced to a single-line guard:
 ```java
-MobBehaviourLogger.getInstance().log(EVENT_STATE_CHANGE, id, getClass().getSimpleName(), depth, newState.toString());
+setState(AiState newState, String reason)
+setEnemy(Char newEnemy, String reason)
+markAlerted(String trigger)
 ```
-No branching was added to existing methods. All conditional logic lives inside `MobBehaviourLogger.log()`, which is new code.
 
-**Thread safety.** `log()` and `getEntries()` are both `synchronized`. The dungeon simulation runs on the LibGDX render thread, so contention is low, but correctness under concurrent test execution required it.
+Instead of raw assignments such as:
 
-**Ring buffer eviction.** When the buffer is full, the oldest entry is silently dropped. `getEntries(limit)` returns the most recent *limit* entries in insertion order, making it easy to assert "the last N events match expectations" in tests.
+```java
+state = HUNTING;
+enemy = target;
+alerted = true;
+```
 
-### Files Changed
+the updated code routes behaviour changes through helpers that can:
 
-| File | Change |
-|------|--------|
-| `actors/mobs/MobBehaviourLogger.java` | **New** — full singleton implementation |
-| `actors/mobs/Mob.java` | 4 one-line log calls added; ΔV(G) = 0 |
+* ignore no-op changes,
+* record meaningful event entries,
+* keep a bounded log buffer,
+* dispatch events to configured sinks,
+* safely handle null values,
+* avoid breaking gameplay if a sink throws.
 
-### Acceptance Criteria (all met)
+### User-Facing Benefit
 
-- Logger is disabled by default; no output is produced unless explicitly enabled.
-- Enabling/disabling the logger at runtime requires no restart.
-- Events are emitted in the correct order for a spawn → alert → state change → target sequence.
-- Memory is bounded: enabling the logger for 10 000 mob events does not grow the heap beyond the configured buffer.
-- All existing unit tests pass unchanged.
+For developers, testers, and reviewers, this makes mob behaviour easier to inspect. Bugs involving enemy state transitions, repeated alerts, target switching, or unexpected AI behaviour can be investigated from recorded event sequences.
 
-### Merge Commit
+### Quality Evidence
 
-`7a72358` — feat/mob-behaviour-logging → main
+The feature report identifies the following test files:
+
+```text
+core/src/test/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLoggerTest.java
+core/src/test/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLoggerPerformanceTest.java
+core/src/integrationTest/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MobBehaviourLoggerIntegrationTest.java
+```
+
+Covered behaviours include:
+
+* singleton logger access,
+* enabled and disabled logger paths,
+* spawn, state-change, alert, and target logging,
+* defensive copy behaviour,
+* ring-buffer eviction,
+* null-safe formatting,
+* sink failure isolation,
+* concurrent writes,
+* mob lifecycle integration,
+* `aggro` and `clearEnemy` integration paths,
+* performance overhead checks.
+
+Documented log line format:
+
+```text
+[12:34:56.789] [STATE_CHANGE] mob#7(TestMob)@42 : WANDERING -> HUNTING
+```
 
 ---
 
 ## Improvement 2 — Recovery Saves
 
-### Quality Problem
+### Purpose
 
-Shattered Pixel Dungeon's original save system used a permanent hard-delete: calling `Dungeon.deleteGame(slot)` immediately removed all files for that slot with no possibility of recovery. A single stray call — or a crash mid-delete — left the player with an unrecoverable game state.
+Recovery Saves improves player-facing reliability by creating a recoverable copy of a save slot before destructive deletion. This reduces the risk of irreversible save loss.
 
-**ISO/IEC 25010 mapping:** Reliability → Recoverability; Fault Tolerance.
+Before this change, the deletion flow permanently overwrote or deleted save files. After this change, deletion first attempts to move the save data into a recovery area.
 
-### Design
+### Behaviour
 
-`RecoveryManager` intercepts every delete request and instead performs a **soft delete**: it copies the entire save bundle to a `recovery/` subdirectory before removing it from the active slot directory. A timestamp-prefixed folder name ensures no two recoveries collide. At most **5 recovery entries per slot** are retained; when the sixth arrives the oldest is automatically pruned.
+When a save is deleted:
 
-```
-RecoveryManager (static utility class)
-│
-├── backupBeforeDelete(int slot)        ← called from Dungeon.deleteGame() patch
-├── listRecoveries(int slot)            ← returns List<RecoveryEntry>, newest first
-├── restore(RecoveryEntry entry, int targetSlot)
-├── delete(RecoveryEntry entry)
-└── pruneOldest(int slot, int maxEntries)
+1. `Dungeon.deleteGame` calls `RecoveryManager.moveToRecovery(save)`.
+2. `RecoveryManager` copies flat save-slot files into a recovery entry.
+3. Recovery entries are stored using the format:
+
+```text
+recovery/<timestamp>_<slot>/
 ```
 
-The in-game recovery UI is surfaced through `WndRecoverySave`, a `Window` subclass that appears in the title-screen save slot menu. It lists available recovery entries for the selected slot, shows the timestamp and hero class for each, and calls `RecoveryManager.restore()` when the player confirms.
+4. Only the five newest recovery entries are retained.
+5. `StartScene` shows a Recover button when recovery entries exist.
+6. `WndRecoverySave` lists recovery entries.
+7. Restoring into an occupied target slot asks for overwrite confirmation.
 
-### Save Directory Layout
+### Retention Policy
 
-```
-<save-dir>/
-├── game1/          ← active slot
-│   ├── game.dat
-│   └── depth1.dat
-└── recovery/
-    └── game1/
-        ├── 20240315_143022_game1/    ← most recent backup
-        │   ├── game.dat
-        │   └── depth1.dat
-        └── 20240301_092110_game1/    ← older backup (pruned after 5)
+```text
+Maximum retained recovery entries: 5
 ```
 
-On Windows the save directory is:
-```
-%USERPROFILE%\AppData\Roaming\.shatteredpixel\Shattered Pixel Dungeon\
-```
+When more than five recovery entries exist, the oldest entry is pruned.
 
-### Files Changed
+### User-Facing Benefit
 
-| File | Change |
-|------|--------|
-| `utils/RecoveryManager.java` | **New** — full backup / restore / prune logic |
-| `scenes/WndRecoverySave.java` | **New** — in-game recovery window |
-| `Dungeon.java` | `deleteGame()` patched to call `RecoveryManager.backupBeforeDelete()` |
-| `scenes/WndGameInProgress.java` | recovery button wired into slot menu |
+Players get a recovery path after deleting a save slot. This is especially useful when a slot is deleted accidentally or when a user later decides they need the old save state.
 
-### Gradle CLI Tasks
+### Quality Evidence
 
-Three Gradle tasks allow recovery operations without launching the game, useful for CI and manual testing:
+The feature report identifies the following test files:
 
-```bash
-# List all recovery entries for slot 1
-./gradlew :desktop:listRecoverySaves -Pslot=1
-
-# Restore a specific entry back to slot 1
-./gradlew :desktop:restoreRecoverySave -Pslot=1 -Ptimestamp=20240315_143022
-
-# Delete a specific recovery entry
-./gradlew :desktop:deleteRecoverySave -Pslot=1 -Ptimestamp=20240315_143022
+```text
+core/src/test/java/com/shatteredpixel/shatteredpixeldungeon/RecoveryManagerTest.java
+core/src/integrationTest/java/com/shatteredpixel/shatteredpixeldungeon/RecoverySavesIntegrationTest.java
 ```
 
-### Acceptance Criteria (all met)
+Covered behaviours include:
 
-- Deleting an active save creates a timestamped recovery folder before removing the slot.
-- No more than 5 recovery entries exist per slot at any time; oldest is pruned automatically.
-- Restoring a recovery entry to an empty slot produces a byte-identical copy of the original save.
-- Restoring over an occupied slot backs up the occupant first (recursive safety).
-- Gradle tasks complete without launching the game UI.
+* parsing recovery entry names,
+* ignoring malformed recovery entries,
+* returning an empty list when no recovery directory exists,
+* sorting recovery entries,
+* skipping nested directories during copy,
+* preserving file content during delete-and-restore,
+* restoring to a different target slot,
+* overwriting occupied slots,
+* keeping only five newest recovery entries,
+* keeping the recovery entry available after restore.
 
-### Merge Commit
-
-`7811326` — feat/recovery-saves → main
+The UI hook is in `StartScene`: a Recover button is shown only when `RecoveryManager.listRecoveryEntries()` returns at least one valid recovery entry. `WndRecoverySave` lists entries by deleted time and original slot, and asks for confirmation before overwriting an occupied target slot.
 
 ---
 
 ## Improvement 3 — Save Integrity Checksum
 
-### Quality Problem
+### Purpose
 
-The game's save files are gzipped JSON bundles stored on the local filesystem. Nothing prevented silent corruption — whether from truncated writes, filesystem errors, or external modification. A corrupted save would either crash the game on load or, worse, load silently with subtly wrong state (wrong depth, missing items, broken transitions).
+Save Integrity Checksum improves save reliability by detecting protected save files that have been corrupted, edited externally, or made inconsistent with the expected save manifest.
 
-**ISO/IEC 25010 mapping:** Security → Integrity; Reliability → Fault Tolerance.
+The feature adds two layers of integrity checking:
 
-### Design
+| Layer                  | Description                                                                                                            |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Bundle checksum        | A SHA-256 checksum is stored inside each JSON bundle as `__checksum`.                                                  |
+| Save manifest checksum | `save_checksums.dat` tracks protected save files, normalized game slot paths, file checksums, and an overall checksum. |
 
-A two-layer checksum scheme is applied on every save and verified on every load:
+### Behaviour
 
-**Layer 1 — per-bundle checksum.** `SaveIntegrityManager.sign(jsonObject)` computes a SHA-256 hash of the canonical JSON string (keys sorted, no extra whitespace) and injects it as `"__checksum": "<hex>"` before the bundle is written. On load, `verify(jsonObject)` extracts and removes the field, recomputes the hash, and compares.
+When a protected save is written:
 
-**Layer 2 — file-level manifest.** `save_checksums.dat` in the save directory maps each save file path to its SHA-256 hash. After writing any save file, `SaveIntegrityManager.updateManifest(path, hash)` upserts the entry. On load, `verifyManifest(path)` re-hashes the file and compares against the manifest entry.
+1. The bundle is written with a checksum.
+2. Protected save files are scanned.
+3. Per-file checksums are calculated.
+4. An overall manifest checksum is calculated.
+5. `save_checksums.dat` is written.
 
+When a protected save is loaded:
+
+1. The manifest is checked when available.
+2. The target save file is validated.
+3. The bundle checksum is verified.
+4. Invalid checksums, malformed checksum fields, and manifest mismatches are rejected.
+
+The report also identifies support for legacy saves without checksums and compatibility logic for normalized game slot paths.
+
+### Protected Save Behaviour
+
+The feature report describes manifest validation paths for:
+
+* missing manifests,
+* invalid manifest shape,
+* valid exact matches,
+* invalid stored overall checksum,
+* normalized rename compatibility,
+* legacy bundle checksum compatibility,
+* checksum mismatch rejection.
+
+### Additional Reliability Support
+
+The feature also adds or modifies reliability-related code in:
+
+```text
+Bundle.java
+FileUtils.java
+GameSettings.java
+CrashReportWriter.java
 ```
-SaveIntegrityManager (static utility class)
-│
-├── sign(JSONObject bundle)          → mutates bundle, adds __checksum
-├── verify(JSONObject bundle)        → returns VerifyResult {OK, MISSING, MISMATCH}
-├── hashFile(Path path)              → returns hex SHA-256 of file bytes
-├── updateManifest(Path, String)     → upserts entry in save_checksums.dat
-└── verifyManifest(Path)             → returns VerifyResult
+
+The report identifies `CrashReportWriter` as a new reliability component with failure containment, filename collision handling, truncation, platform/thread fallback, and GDX store failure handling.
+
+### User-Facing Benefit
+
+The game is less likely to silently accept corrupted or externally modified protected saves. Instead, checksum and manifest mismatches are detected during load.
+
+This feature should be described as an integrity check, not as a complete security boundary.
+
+### Quality Evidence
+
+The feature report identifies the following test files:
+
+```text
+SPD-classes/src/test/java/com/watabou/utils/BundleTest.java
+SPD-classes/src/test/java/com/watabou/utils/CrashReportWriterTest.java
+SPD-classes/src/test/java/com/watabou/utils/FileUtilsTest.java
+SPD-classes/src/test/java/com/watabou/utils/GameSettingsTest.java
+SPD-classes/src/integrationTest/java/com/watabou/utils/FileUtilsSaveManifestIntegrationTest.java
 ```
 
-**Legacy save compatibility.** Saves that pre-date this feature have no `__checksum` field and no manifest entry. Both `verify()` and `verifyManifest()` return `VerifyResult.MISSING` (not `MISMATCH`) for these, allowing the game to load them normally while logging a warning. Only an explicit hash mismatch blocks loading.
+Covered behaviours include:
 
-### Test Fixtures
+* signed bundle write and read,
+* checksum removal after read,
+* legacy save loading without checksum,
+* compressed save round trip,
+* checksum mismatch rejection,
+* canonical key ordering,
+* nested objects, arrays, booleans, and null values,
+* malformed checksum field rejection,
+* save manifest creation,
+* external tampering detection,
+* random byte-flip rejection,
+* protected file rename rejection,
+* manifest shape validation,
+* delete and overwrite manifest refresh,
+* settings writes refreshing the manifest,
+* manifest update failure containment,
+* crash report write failure containment.
 
-Six save fixtures in `doc/save-integrity-checksum/` exercise latent quality issues independent of the checksum feature, demonstrating the kinds of corruption the feature is designed to catch:
-
-| Slot | Seed label | Fault type |
-|------|-----------|------------|
-| game1 | `UP-FLOOR-0-DOWN-MISSING-D2` | `depth2.dat` absent despite being marked generated |
-| game2 | `DOWN-RELOADS-FLOOR-1` | Down-ladder loops back to current floor |
-| game3 | `DOWN-TO-DEPTH-999` | Down-ladder points to non-existent depth 999 |
-| game4 | `VISIBLE-DOWN-NO-TRANSITION` | Visible exit tile has no transition metadata |
-| game5 | `HIDDEN-FLOOR-TILE-DESCENDS` | Hidden floor tile descends; visible ladder does nothing |
-| game6 | `LOCKED-LEVEL-STAIRS-BLOCKED` | Floor flagged locked — visible transitions refused |
-
-All six pass the integrity check (checksums are valid; the faults are semantic) and all six fail only during gameplay interaction, demonstrating that checksum verification catches byte-level corruption while remaining orthogonal to game-logic bugs.
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `utils/SaveIntegrityManager.java` | **New** — sign/verify/manifest logic |
-| `Dungeon.java` | `saveGame()` calls `sign()`, `loadGame()` calls `verify()` |
-| `FileUtils.java` | `writeFile()` calls `updateManifest()` after write |
-
-### Merge Commit
-
-`43c6f42` — feat/save-integrity-checksum → main
+The low-level `IOException` messages used by the integrity layer include `bundle checksum is invalid`, `bundle checksum mismatch`, `save manifest is invalid`, and `save manifest checksum mismatch`.
 
 ---
 
 ## SQA Process
 
-### Branching Strategy
+The software quality process used for this repository is based on feature-level comparison, path analysis, automated tests, and coverage reporting.
 
-Each improvement was developed in isolation on its own feature branch. No feature branch was merged until:
+### 1. Feature Baseline Comparison
 
-1. All unit tests for that feature passed (`./gradlew :core:test`).
-2. A teammate performed a code review and approved the PR.
-3. SpotBugs reported zero new bugs in the `CORRECTNESS` and `THREAD_SAFETY` categories.
-4. JaCoCo line coverage for new code was ≥ 90%.
+Each feature is compared against the first parent of the merge commit that introduced it.
 
-```
-main
- ├── feat/mob-behaviour-logging    → merged at 7a72358
- ├── feat/recovery-saves           → merged at 7811326
- ├── feat/save-integrity-checksum  → merged at 43c6f42
- └── report/merge-test             (integration verification)
-```
+| Feature                 | Merge Commit | Benchmark Parent |
+| ----------------------- | -----------: | ---------------: |
+| Mob behaviour logging   |    `7a72358` |      `7a72358^1` |
+| Save integrity checksum |    `43c6f42` |      `43c6f42^1` |
+| Recovery saves          |    `7811326` |      `7811326^1` |
 
-### Pair Programming & Mob Reviews
+### 2. Complexity Analysis
 
-Each feature was developed with a partner using informal pair programming (driver / navigator rotation in 25-minute blocks). Before merge, all three team members reviewed each PR together in a mob review session, checking for correctness, thread safety, edge cases, and adherence to the zero-ΔV(G) constraint on existing methods.
+Cyclomatic complexity is reviewed to check whether each feature adds complexity in a controlled way.
 
-### Test-Driven Development
+The main findings are:
 
-Tests were written before implementation for all three features following the red → green → refactor cycle:
+| Feature                 | Complexity Finding                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Mob behaviour logging   | Existing AI decision branches are preserved. New complexity is isolated in helper and logger methods.        |
+| Save integrity checksum | Highest complexity increase because of canonical JSON signing, manifest scanning, and manifest verification. |
+| Recovery saves          | Moderate, localized complexity mostly in `RecoveryManager` and recovery UI logic.                            |
 
-1. **Red** — write a failing test that specifies the desired behaviour (e.g., "logging a spawn event stores it in the buffer").
-2. **Green** — write the minimum implementation to make the test pass.
-3. **Refactor** — clean up the implementation while keeping tests green.
+### 3. Test Strategy
 
-This was particularly effective for `SaveIntegrityManager`, where the `VerifyResult` enum and the `MISSING` vs. `MISMATCH` distinction were driven entirely by failing tests before a single line of the manager was written.
+The test strategy uses:
 
-### Static Analysis
+* unit tests for helper methods and edge cases,
+* integration tests for feature flows across classes,
+* performance tests for mob logging overhead,
+* filesystem-based tests for save integrity and recovery behaviour,
+* tampering and corruption simulation for save validation.
 
-SpotBugs was run as part of the Gradle build:
+### 4. Regression Considerations
 
-```bash
-./gradlew :core:spotbugsMain
-```
+Regression risk is managed by keeping feature behaviour localized:
 
-All findings were either fixed or documented as accepted risks before merge. No `CORRECTNESS` or `THREAD_SAFETY` category bugs were accepted.
+* mob logging observes AI transitions without changing the original AI decision structure,
+* recovery saves runs before destructive deletion and then allows the original deletion flow to continue,
+* save integrity checks are integrated into existing save/load helpers and include legacy compatibility paths.
+
+No CI workflow is checked into this repository. Verification evidence in this README is from local Gradle runs on 2026-05-23.
 
 ---
 
 ## Test Results & Coverage
 
-### Summary
+The current verification command is:
 
-| Feature | Unit Tests | Integration Tests | Line Coverage | Branch Coverage |
-|---------|-----------|-------------------|---------------|-----------------|
-| Mob Behaviour Logging | 18 | 4 | 96.0% | 100.0% |
-| Save Integrity Checksum | 21 | 5 | 94.0% | 87.2% |
-| Recovery Saves | 16 | 6 | 97.2% | 100.0% |
-| Cross-feature (all three) | — | 8 | — | — |
-| **Total** | **55** | **23** | — | — |
+```bash
+cd shattered-pixel-dungeon-3.0.2
+./gradlew featureTest --no-daemon
+```
 
-### Mob Behaviour Logging — Selected Test Cases
+Last local verification: 2026-05-23, using JDK 17 and `GRADLE_USER_HOME=.gradle`. Result: **172 tests passed**, with 0 failures, 0 errors, and 0 skipped tests.
 
-| Test | Path exercised | Expected outcome |
-|------|---------------|-----------------|
-| `testSpawnEventRecorded` | logger enabled → `log(EVENT_SPAWN, ...)` | entry in buffer with correct type |
-| `testRingBufferEviction` | fill buffer to capacity + 1 | oldest entry dropped, size = capacity |
-| `testDisabledLoggerDropsAll` | logger disabled → `log(...)` × N | buffer remains empty |
-| `testGetEntriesLimit` | 10 entries logged, `getEntries(3)` | returns 3 most recent in order |
-| `testFileSinkWritesUTF8` | file sink configured, 5 events logged | file contains 5 lines, valid UTF-8 |
-| `testConcurrentLogThreadSafety` | 4 threads × 250 events simultaneously | no lost updates, no exceptions |
-| `testStateChangeEventOnSetState` | `mob.setState(SLEEPING)` → `setState(HUNTING)` | two STATE_CHANGE events in buffer |
-| `testAlertEventOnAlerted` | `mob.alerted()` called | one ALERT event in buffer |
+| Suite | Tests |
+| ----- | ----: |
+| `:core:test` | 56 |
+| `:core:integrationTest` | 27 |
+| `:SPD-classes:test` | 65 |
+| `:SPD-classes:integrationTest` | 24 |
+| **Total** | **172** |
 
-### Recovery Saves — Selected Test Cases
+JaCoCo coverage is intentionally scoped by `core/build.gradle` and `SPD-classes/build.gradle` to the assignment-added or assignment-modified components, not the entire upstream game.
 
-| Test | Path exercised | Expected outcome |
-|------|---------------|-----------------|
-| `testBackupCreatedOnDelete` | `backupBeforeDelete(1)` | timestamped folder created in `recovery/game1/` |
-| `testRestoreProducesIdenticalFiles` | backup then restore to empty slot | byte-identical save files |
-| `testMaxFiveEntriesEnforced` | 6 sequential deletes of slot 1 | only 5 entries in `recovery/game1/` |
-| `testOldestPrunedFirst` | 6 deletes, inspect remaining entries | oldest timestamp absent |
-| `testRestoreOverOccupiedSlotBacksUpFirst` | restore over live slot | original occupant backed up before overwrite |
-| `testListRecoveriesNewestFirst` | 3 backups at different timestamps | `listRecoveries()` returns newest first |
+| Scope | Classes Included | Line Coverage | Branch Coverage | Instruction Coverage |
+| ----- | ---------------- | ------------: | --------------: | -------------------: |
+| Mob behaviour logging | `MobBehaviourLogger*` | 96.0% | 100.0% | 95.8% |
+| Recovery saves | `RecoveryManager*` | 100.0% | 100.0% | 100.0% |
+| Save integrity checksum | `Bundle*`, `FileUtils*`, `GameSettings*`, `CrashReportWriter*` | 100.0% | 98.9% | 99.9% |
 
-### Save Integrity Checksum — Selected Test Cases
+### Coverage Interpretation
 
-| Test | Path exercised | Expected outcome |
-|------|---------------|-----------------|
-| `testSignInjectsChecksum` | `sign(bundle)` | `__checksum` key present in JSON |
-| `testVerifyOkOnUnmodifiedBundle` | sign then verify same object | `VerifyResult.OK` |
-| `testVerifyMismatchOnTamperedBundle` | sign, modify one field, verify | `VerifyResult.MISMATCH` |
-| `testVerifyMissingOnLegacySave` | verify bundle with no checksum field | `VerifyResult.MISSING` |
-| `testManifestUpdatedAfterWrite` | write file, check manifest | SHA-256 in manifest matches file hash |
-| `testManifestMismatchOnCorruptedFile` | write file, corrupt bytes, verify manifest | `VerifyResult.MISMATCH` |
-| `testChecksumFieldExcludedFromHash` | sign twice, compare checksums | identical (field excluded from hash input) |
+| Feature                 | Interpretation                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Mob behaviour logging   | High coverage across logger internals, mob instrumentation, integration paths, and performance guard tests.                    |
+| Save integrity checksum | Strong coverage across bundle signing, manifest validation, tamper detection, settings interaction, and crash-report handling. |
+| Recovery saves          | Full coverage for `RecoveryManager`; UI classes are validated by source review and integration-path tests rather than the filtered JaCoCo scope. |
+
+Generated JaCoCo report paths:
+
+```text
+shattered-pixel-dungeon-3.0.2/core/build/reports/jacoco/test/html/index.html
+shattered-pixel-dungeon-3.0.2/core/build/reports/jacoco/test/jacocoTestReport.xml
+shattered-pixel-dungeon-3.0.2/core/build/reports/jacoco/test/jacocoTestReport.csv
+shattered-pixel-dungeon-3.0.2/SPD-classes/build/reports/jacoco/test/html/index.html
+shattered-pixel-dungeon-3.0.2/SPD-classes/build/reports/jacoco/test/jacocoTestReport.xml
+shattered-pixel-dungeon-3.0.2/SPD-classes/build/reports/jacoco/test/jacocoTestReport.csv
+```
 
 ---
 
 ## Cyclomatic Complexity Analysis
 
-Full flow graphs, FSM diagrams, and per-method V(G) tables are in [`FEATURE_COMPLEXITY_AND_TEST_REPORT.md`](FEATURE_COMPLEXITY_AND_TEST_REPORT.md). Key findings are summarised here.
+Cyclomatic complexity is reported using:
 
-### Constraint: ΔV(G) = 0 in All Patched Existing Methods
+```text
+V(G) = decisions + 1
+```
 
-Every method in the pre-existing codebase that was modified received only straight-line additions — no new `if`, `while`, `for`, `switch`, or `catch` blocks. This kept V(G) identical in those methods before and after each patch.
+### Summary
 
-### New Code Complexity
+| Feature                 | Complexity Placement                                                          | Result                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Mob behaviour logging   | Added to logging helpers and event-recording paths.                           | Existing mob AI decision flow remains unchanged.                       |
+| Recovery saves          | Added mainly to `RecoveryManager` and recovery UI logic.                      | New behaviour is localized and easy to test.                           |
+| Save integrity checksum | Added to bundle signing, manifest scanning, manifest parsing, and validation. | Highest complexity, but supported by broad unit and integration tests. |
 
-| Class / Method | V(G) | Rationale |
-|---------------|------|-----------|
-| `MobBehaviourLogger.log()` | 4 | enabled check + sink dispatch + buffer-full eviction |
-| `MobBehaviourLogger.getEntries(limit)` | 2 | limit clamp |
-| `RecoveryManager.backupBeforeDelete()` | 3 | slot valid + destination exists |
-| `RecoveryManager.pruneOldest()` | 3 | list size check + loop |
-| `RecoveryManager.restore()` | 4 | source exists + target occupied + copy loop |
-| `SaveIntegrityManager.verify()` | 3 | missing vs. mismatch vs. ok |
-| `SaveIntegrityManager.verifyManifest()` | 3 | missing vs. mismatch vs. ok |
-| `SaveIntegrityManager.sign()` | 1 | straight-line |
+### Important Notes
 
-All new V(G) values sit in the 1–5 range, indicating well-scoped, easily testable methods. No method exceeds the threshold of 10 that would trigger mandatory refactoring.
+#### Mob Behaviour Logging
 
-### Finite State Machine Summary
+The feature report states that the original mob AI control flow is preserved. Direct assignments were replaced by helper calls, but existing gameplay branches remain the same.
 
-Each feature's runtime behaviour was modelled as an FSM to drive test-path selection:
+Main added complexity appears in:
 
-**Mob Behaviour Logger** — states: `DISABLED`, `ENABLED_BUFFER_SPACE`, `ENABLED_BUFFER_FULL`. Transitions: `setEnabled(true/false)`, `log()` when buffer not full, `log()` when buffer full (evicts oldest).
+```text
+Mob.setState
+Mob.setEnemy
+Mob.markAlerted
+MobBehaviourLogger.logSpawn
+MobBehaviourLogger.logStateChange
+MobBehaviourLogger.logAlert
+MobBehaviourLogger.logTarget
+MobBehaviourLogger.record
+MobBehaviourLogger.dispatch
+MobBehaviourLogger.safe
+```
 
-**Recovery Manager** — states: `IDLE`, `BACKING_UP`, `PRUNING`, `RESTORING`. Transitions driven by `backupBeforeDelete()`, `restore()`, `delete()`.
+#### Recovery Saves
 
-**Save Integrity** — states: `UNSIGNED`, `SIGNED`, `VERIFIED_OK`, `VERIFIED_MISSING`, `VERIFIED_MISMATCH`. Transitions: `sign()`, `verify()`.
+Recovery complexity is mostly new and localized.
 
-### Markov Chain Analysis
+Main added complexity appears in:
 
-A first-order Markov chain was constructed for each feature to model the probability of transitioning between states under normal gameplay. This informed which state transitions to stress-test and which error paths (low-probability transitions) required targeted negative tests rather than relying on random coverage.
+```text
+RecoveryManager.moveToRecovery
+RecoveryManager.listRecoveryEntries
+RecoveryManager.restoreEntry
+RecoveryManager.slotFromEntryName
+RecoveryManager.isRecoveryEntryName
+RecoveryManager.copyGameDir
+RecoveryManager.pruneOldEntries
+WndRecoverySave
+```
 
-For the Mob Behaviour Logger, the highest-probability transition chain is `ENABLED_BUFFER_SPACE → ENABLED_BUFFER_SPACE` (repeated logging), with buffer-full eviction as a low-probability but high-impact transition — tested explicitly in `testRingBufferEviction`.
+#### Save Integrity Checksum
 
-For the Save Integrity Manager, the chain `UNSIGNED → SIGNED → VERIFIED_OK` covers the normal write-read cycle (probability ≈ 0.98 under clean conditions). The `VERIFIED_MISMATCH` state has a near-zero probability under normal conditions but a severity of "block load", making it the highest-priority path for dedicated negative tests.
+Save integrity has the largest complexity increase because it handles canonical JSON serialization, checksum verification, manifest update, manifest parsing, and compatibility behaviour.
+
+Main added complexity appears in:
+
+```text
+Bundle.readChecksum
+Bundle.verifyChecksum
+Bundle.appendObject
+Bundle.appendArray
+Bundle.appendValue
+FileUtils.updateSaveManifest
+FileUtils.verifySaveManifest
+FileUtils.collectManifestFiles
+FileUtils.isManifestProtectedFile
+FileUtils.isActiveGameDir
+FileUtils.manifestEntriesFromManifest
+FileUtils.legacyManifestFileChecksum
+CrashReportWriter
+CrashReportWriter.GdxReportStore
+```
 
 ---
 
 ## Cross-Feature Integration
 
-`MergedFeatureIntegrationTest.java` on branch `report/merge-test` verifies that all three features coexist without interference. Eight integration scenarios are covered:
+The three features improve different parts of the game:
 
-| Scenario | Features exercised | Assertion |
-|----------|--------------------|-----------|
-| Log events during save + checksum | Mob Logging + Checksum | log buffer unaffected by sign/verify calls |
-| Recovery backup preserves checksum | Recovery + Checksum | restored save passes integrity check |
-| Mob events during recovery restore | Mob Logging + Recovery | spawn events emitted for mobs in restored save |
-| All three during a simulated level load | All three | no exceptions; correct event counts; verified save |
-| Checksum on recovery entry files | Recovery + Checksum | recovery folder files pass manifest verification |
-| Log buffer survives recovery restore | Mob Logging + Recovery | buffer contents unchanged after restore |
-| Concurrent log + save | Mob Logging + Checksum | no data races under simultaneous logging and writing |
-| Full game cycle | All three | spawn → alert → save (signed) → delete (backed up) → restore (verified) |
+| Feature                 | Area                                         |
+| ----------------------- | -------------------------------------------- |
+| Mob behaviour logging   | AI observability                             |
+| Recovery saves          | Save deletion and restoration                |
+| Save integrity checksum | Save validation and protected file integrity |
 
-All 8 scenarios pass on `report/merge-test`.
+### Integration Considerations
+
+* **Mob behaviour logging** is mostly independent from the save system. It improves observability without changing the original AI decision structure.
+* **Recovery saves** and **save integrity checksum** both operate around save files, so they should be reviewed together for save lifecycle correctness.
+* **Save integrity checksum** refreshes manifests after save-related file operations such as delete and overwrite.
+* **Recovery saves** preserves deleted slot files in a recovery location and supports restoring them into target slots.
+
+### Cross-Feature Test Evidence
+
+`core/src/integrationTest/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MergedFeatureIntegrationTest.java` covers nine scenarios where the features interact:
+
+* mob logging does not affect save manifest validation,
+* recovery directories are excluded from the save manifest,
+* delete-to-recovery then restore keeps checksummed saves readable,
+* restored saves reject later tampering,
+* helper deletion updates the manifest while recovery keeps original bytes,
+* logger sink failures do not block manifest or recovery workflows,
+* `Dungeon.deleteGame` -> restore -> load -> tamper rejection works end to end.
 
 ---
 
@@ -457,100 +586,160 @@ All 8 scenarios pass on `report/merge-test`.
 
 ### Prerequisites
 
-- JDK 11 or higher
-- Android SDK (for Android build only)
-- Gradle wrapper included (`./gradlew`)
+* JDK 17 is recommended for local build and coverage runs. The upstream desktop guide also recommends Java 17.
+* Gradle wrapper: `8.10.2`.
+* Android Gradle Plugin: `8.7.1`.
+* Java source compatibility: `1.8`.
+* Android compile SDK: `34`; min SDK: `14`; target SDK: `34`.
+* Android builds require an Android SDK configured through Android Studio, `ANDROID_HOME`, or `local.properties`.
 
-### Desktop Build & Run
+Java 25 can run some tasks, but JaCoCo `0.8.11` may print instrumentation warnings for Java 25 class files. Use JDK 17 for clean coverage output.
+
+### Clone the Repository
+
+```bash
+git clone git@github.com:S-A-M-22/ELEC5618-A3.git
+cd ELEC5618-A3
+```
+
+Gradle commands must be run from the nested game project:
 
 ```bash
 cd shattered-pixel-dungeon-3.0.2
-./gradlew :desktop:run
+```
+
+### Inspect Available Gradle Tasks
+
+Use the Gradle wrapper if it exists in the repository:
+
+```bash
+./gradlew tasks
+```
+
+On Windows:
+
+```bat
+gradlew.bat tasks
+```
+
+### Desktop Build / Run
+
+```bash
+./gradlew desktop:debug --no-daemon
+```
+
+Build a distributable desktop JAR:
+
+```bash
+./gradlew desktop:release --no-daemon
+```
+
+The release JAR is generated under:
+
+```text
+desktop/build/libs/
 ```
 
 ### Android Build
 
 ```bash
-./gradlew :android:assembleDebug
-# APK at android/build/outputs/apk/debug/android-debug.apk
+./gradlew android:assembleDebug --no-daemon
 ```
 
-### Enabling Mob Behaviour Logging at Runtime
-
-Logging is **disabled by default**. To enable it programmatically:
-
-```java
-MobBehaviourLogger logger = MobBehaviourLogger.getInstance();
-logger.configure(1000, MobBehaviourLogger.SINK_TERMINAL | MobBehaviourLogger.SINK_FILE, "mob_log.txt");
-logger.setEnabled(true);
-```
-
-Or pass the system property at launch:
-
-```bash
-./gradlew :desktop:run -Dmob.logging=true -Dmob.log.file=mob_log.txt
-```
+If this fails with a missing SDK error, configure Android SDK location before rerunning.
 
 ---
 
 ## How to Run Tests
 
-### All Tests
+Run these commands from `shattered-pixel-dungeon-3.0.2/`.
+
+### Full Feature Suite
 
 ```bash
-cd shattered-pixel-dungeon-3.0.2
-./gradlew :core:test
+./gradlew featureTest --no-daemon
 ```
 
-### Tests for a Specific Feature
+This command runs both unit and integration tests for `:core` and `:SPD-classes`, then generates the scoped JaCoCo reports.
+
+### Unit Tests
 
 ```bash
-# Mob Behaviour Logging
-./gradlew :core:test --tests "MobBehaviourLoggerTest"
-
-# Recovery Saves
-./gradlew :core:test --tests "RecoveryManagerTest"
-
-# Save Integrity Checksum
-./gradlew :core:test --tests "SaveIntegrityManagerTest"
-
-# Cross-feature integration
-./gradlew :core:test --tests "MergedFeatureIntegrationTest"
+./gradlew core:test SPD-classes:test --no-daemon
 ```
 
-### Coverage Report (JaCoCo)
+### Integration Tests
 
 ```bash
-./gradlew :core:jacocoTestReport
-# HTML report: core/build/reports/jacoco/test/html/index.html
+./gradlew core:integrationTest SPD-classes:integrationTest --no-daemon
 ```
 
-### Mutation Testing (PITest)
+### Coverage Reports
 
 ```bash
-./gradlew :core:pitest
-# Report: core/build/reports/pitest/index.html
+./gradlew core:jacocoTestReport SPD-classes:jacocoTestReport --no-daemon
 ```
 
-### Static Analysis (SpotBugs)
+---
+
+## Fixture Scripts
+
+Run fixture scripts from the assignment repository root, not from `shattered-pixel-dungeon-3.0.2/`.
 
 ```bash
-./gradlew :core:spotbugsMain
-# XML report: core/build/reports/spotbugs/main.xml
+scripts/install_modified_save_and_run.sh --no-launch
+scripts/install_empty_save_and_run.sh --no-launch
+```
+
+Both scripts back up existing numeric `gameN` saves before changing the save directory. For safe dry runs, point them at a temporary save directory:
+
+```bash
+SAVE_DIR=/tmp/spd-test-saves scripts/install_modified_save_and_run.sh --no-launch
+```
+
+The fixture generator writes into an existing fixture tree under `shattered-pixel-dungeon-3.0.2/save-fixtures/quality-issue-latent-clean`. Move or remove that output directory before regenerating fixtures.
+
+```bash
+python3 scripts/create_quality_save_fixtures.py
 ```
 
 ---
 
 ## Gradle Tasks Reference
 
-| Task | Module | Description |
-|------|--------|-------------|
-| `test` | `:core` | Run all unit and integration tests |
-| `jacocoTestReport` | `:core` | Generate JaCoCo HTML coverage report |
-| `pitest` | `:core` | Run PITest mutation analysis |
-| `spotbugsMain` | `:core` | Run SpotBugs static analysis on main sources |
-| `listRecoverySaves` | `:desktop` | List recovery entries for a slot (`-Pslot=N`) |
-| `restoreRecoverySave` | `:desktop` | Restore an entry (`-Pslot=N -Ptimestamp=...`) |
-| `deleteRecoverySave` | `:desktop` | Delete an entry (`-Pslot=N -Ptimestamp=...`) |
-| `run` | `:desktop` | Build and launch the desktop game |
-| `assembleDebug` | `:android` | Build a debug APK |
+Run these from `shattered-pixel-dungeon-3.0.2/`.
+
+| Task | Purpose |
+| ---- | ------- |
+| `./gradlew tasks --all --no-daemon` | Lists available tasks. |
+| `./gradlew featureTest --no-daemon` | Runs assignment feature tests and JaCoCo reports for `:core` and `:SPD-classes`. |
+| `./gradlew core:test SPD-classes:test --no-daemon` | Runs unit tests. |
+| `./gradlew core:integrationTest SPD-classes:integrationTest --no-daemon` | Runs integration tests. |
+| `./gradlew core:jacocoTestReport SPD-classes:jacocoTestReport --no-daemon` | Generates scoped coverage reports. |
+| `./gradlew desktop:debug --no-daemon` | Runs the desktop game in debug mode. |
+| `./gradlew desktop:release --no-daemon` | Builds the desktop release JAR. |
+| `./gradlew android:assembleDebug --no-daemon` | Builds an Android debug APK when Android SDK is configured. |
+| `./gradlew listRecoverySaves` | Lists recovery saves in the desktop save directory. |
+| `./gradlew restoreRecoverySave -PrecoveryIndex=N -PtargetSlot=M` | Restores a recovery entry into a target slot. |
+| `./gradlew deleteRecoverySave -PrecoveryIndex=N` | Permanently deletes one recovery entry. |
+
+---
+
+## Assignment Deliverables
+
+This repository should include:
+
+```text
+README.md
+FEATURE_COMPLEXITY_AND_TEST_REPORT.md
+Source code for the three implemented features
+Unit tests
+Integration tests
+Coverage evidence
+```
+
+---
+
+## Acknowledgement
+
+This project is based on [Shattered Pixel Dungeon](https://github.com/00-Evan/shattered-pixel-dungeon) v3.0.2. The added work in this repository is for ELEC5618 Assignment 3 and focuses on software quality improvements through observability, recovery, and save integrity.
