@@ -124,12 +124,14 @@ public class FileUtilsSaveManifestIntegrationTest {
 		mkdirs("game1/nested");
 		mkdirs("game");
 		mkdirs("gameA");
+		mkdirs("recovery/123_game1");
 
 		writeSignedBundle("game1/depth1.dat", bundle("depth", 1));
 		writeSignedBundle("game1/depth1.dat.tmp", bundle("depth", 99));
 		writeSignedBundle("game1/nested/depth2.dat", bundle("depth", 2));
 		writeSignedBundle("game/depth1.dat", bundle("depth", 3));
 		writeSignedBundle("gameA/depth1.dat", bundle("depth", 4));
+		writeSignedBundle("recovery/123_game1/game.dat", bundle("depth", 5));
 		writeText("rankings.dat", "{\"score\":1}");
 		writeText(GameSettings.DEFAULT_PREFS_FILE, "<settings/>");
 		writeText("notes.txt", "ignore");
