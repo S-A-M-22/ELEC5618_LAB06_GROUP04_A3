@@ -5,8 +5,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/install_empty_save_and_run.sh [--no-launch] [--include-settings]
 
-Backs up Shattered Pixel Dungeon save/progress files, leaves the save directory
-empty of active runs, then starts the desktop game.
+Backs up Shattered Pixel Dungeon numeric gameN save directories and progress
+files, leaves the save directory empty of active runs, then starts the desktop game.
 
 By default this preserves settings.xml and keybinds.dat. Use --include-settings
 to back those up too for a fully fresh local state.
@@ -68,7 +68,6 @@ backup_dir="$save_dir.empty-backup.$stamp"
 mkdir -p "$save_dir"
 
 items=(
-  game1 game2 game3 game4 game5 game6
   rankings.dat badges.dat journal.dat bones.dat
 )
 
@@ -80,6 +79,22 @@ echo "Save directory: $save_dir"
 echo "Backup directory: $backup_dir"
 
 backed_up=0
+for current in "$save_dir"/game*; do
+  [ -d "$current" ] || continue
+  item="$(basename "$current")"
+  slot_number="${item#game}"
+  case "$slot_number" in
+    ""|*[!0-9]*)
+      continue
+      ;;
+  esac
+
+  mkdir -p "$backup_dir"
+  mv "$current" "$backup_dir/$item"
+  echo "Backed up $item"
+  backed_up=1
+done
+
 for item in "${items[@]}"; do
   current="$save_dir/$item"
   if [ -e "$current" ]; then
