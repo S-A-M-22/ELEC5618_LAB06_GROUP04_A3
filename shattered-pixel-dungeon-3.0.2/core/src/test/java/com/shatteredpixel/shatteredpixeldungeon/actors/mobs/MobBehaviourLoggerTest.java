@@ -1,5 +1,7 @@
 package com.shatteredpixel.shatteredpixeldungeon.actors.mobs;
 
+import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -179,6 +181,63 @@ class MobBehaviourLoggerTest {
 			assertTrue(s.contains("7"));
 			assertTrue(s.contains("Rat"));
 			assertTrue(s.contains("42"));
+		}
+	}
+
+	@Nested
+	@DisplayName("No-op transitions")
+	class NoOpTransitionTests {
+
+		private MobBehaviourLogger singleton;
+
+		@BeforeEach
+		void setUpSingletonLogger() {
+			singleton = MobBehaviourLogger.getInstance();
+			singleton.clear();
+			singleton.setEnabled(true);
+			singleton.setTerminalSink(s -> {});
+			singleton.setFileSink(s -> {});
+		}
+
+		@Test
+		@DisplayName("setState with the current state does not duplicate logs")
+		void sameState_doesNotDuplicateStateChangeLog() {
+			TestMob mob = new TestMob();
+
+			mob.setState(mob.WANDERING, "first transition");
+			mob.setState(mob.WANDERING, "same state");
+
+			assertEquals(1, singleton.size());
+			assertEquals(MobBehaviourLogger.EVENT_STATE_CHANGE,
+					singleton.getEntries().get(0).eventType);
+		}
+
+		@Test
+		@DisplayName("setEnemy with the current enemy does not duplicate logs")
+		void sameEnemy_doesNotDuplicateTargetLog() {
+			TestMob mob = new TestMob();
+			TestChar enemy = new TestChar("Hero");
+
+			mob.setEnemy(enemy, "first target");
+			mob.setEnemy(enemy, "same target");
+
+			assertEquals(1, singleton.size());
+			assertEquals(MobBehaviourLogger.EVENT_TARGET,
+					singleton.getEntries().get(0).eventType);
+		}
+
+		@Test
+		@DisplayName("markAlerted on an already-alerted mob does not duplicate logs")
+		void alreadyAlerted_doesNotDuplicateAlertLog() {
+			TestMob mob = new TestMob();
+
+			mob.markAlerted("first alert");
+			mob.markAlerted("already alerted");
+
+			assertEquals(1, singleton.size());
+			MobBehaviourLogger.Entry e = singleton.getEntries().get(0);
+			assertEquals(MobBehaviourLogger.EVENT_ALERT, e.eventType);
+			assertTrue(e.details.contains("first alert"));
 		}
 	}
 
@@ -461,5 +520,30 @@ class MobBehaviourLoggerTest {
 		assertFalse(es.isEmpty(), "logger captured no entries");
 		assertEquals(1, es.size(), "logger captured more than one entry");
 		return es.get(0);
+	}
+
+	private static class TestMob extends Mob {
+		@Override
+		public String name() {
+			return "TestMob";
+		}
+	}
+
+	private static class TestChar extends Char {
+		private final String name;
+
+		TestChar(String name) {
+			this.name = name;
+		}
+
+		@Override
+		public String name() {
+			return name;
+		}
+
+		@Override
+		protected boolean act() {
+			return true;
+		}
 	}
 }
