@@ -13,6 +13,24 @@ Benchmark points:
 
 Cyclomatic complexity is reported as `V(G) = decisions + 1`. Current method values are aligned with JaCoCo complexity where available. For files/classes that did not exist in the benchmark, the original complexity is `0`.
 
+## Verification Checklist
+
+- [x] Verified benchmark merge commits resolve locally: `7a72358`, `43c6f42`, `7811326`.
+- [x] Checked the production files and tests referenced by this report against the current source tree.
+- [x] Ran the assignment feature test command from `shattered-pixel-dungeon-3.0.2/`: `JAVA_HOME=/Library/Java/JavaVirtualMachines/amazon-corretto-17.jdk/Contents/Home GRADLE_USER_HOME=.gradle ./gradlew featureTest --no-daemon`.
+- [x] Confirmed 172 tests pass: 56 core unit, 27 core integration, 65 SPD-classes unit, 24 SPD-classes integration.
+- [x] Regenerated scoped JaCoCo reports for `core` and `SPD-classes`.
+- [x] Cross-checked report and README claims with independent agent reviews for feature facts, README commands, and coverage/Jacoco evidence.
+
+Generated coverage artifacts:
+
+- `core/build/reports/jacoco/test/html/index.html`
+- `core/build/reports/jacoco/test/jacocoTestReport.xml`
+- `core/build/reports/jacoco/test/jacocoTestReport.csv`
+- `SPD-classes/build/reports/jacoco/test/html/index.html`
+- `SPD-classes/build/reports/jacoco/test/jacocoTestReport.xml`
+- `SPD-classes/build/reports/jacoco/test/jacocoTestReport.csv`
+
 ## 1. Mob Behaviour Logging
 
 ### Feature Summary
@@ -29,7 +47,7 @@ The feature adds `MobBehaviourLogger` plus helper methods in `Mob`:
 - `setEnemy(Char newEnemy, String reason)`
 - `markAlerted(String trigger)`
 
-The existing AI decision structure is intentionally preserved. Most existing mob methods have the same branch structure, but mutation sites now pass through helper methods that add no-op checks and event emission.
+The existing AI decision structure is intentionally preserved. Most existing mob methods have the same branch structure, but selected mutation sites now pass through helper methods that add no-op checks and event emission. One direct allied-mob assignment remains (`ally.state = ally.WANDERING` in `Mob.java`) and is not counted as part of the logging instrumentation path.
 
 ### Changed Function Complexity
 
@@ -50,7 +68,7 @@ Important scope note: the mob behaviour logging feature does not add new decisio
 | `MobBehaviourLogger.dispatch` | 0 | 2 | +2 | New sink isolation. Paths: null sink return; sink call; thrown sink swallowed. |
 | `MobBehaviourLogger.safe` | 0 | 2 | +2 | New null placeholder branch. |
 
-Net effect: the friend statement is accurate for the original mob AI logic: there is no added cyclomatic complexity in the existing gameplay decision flow. At the whole-feature level, there is additional complexity because new helper/logger functions now exist and must be tested. This is a good containment pattern because the legacy state machine is not made harder to reason about at each mutation site.
+Net effect: the containment statement is accurate for the original mob AI logic under instrumentation: no new branch is added to the existing gameplay decision flow at the logged mutation sites. At the whole-feature level, there is additional complexity because new helper/logger functions now exist and must be tested. This is a good containment pattern because the legacy state machine is not made harder to reason about at each logged mutation site.
 
 ### Original Flow Graph
 
@@ -230,7 +248,7 @@ The feature also adds settings manifest refresh and crash-report writing support
 | `FileUtils.legacyManifestFileChecksum` | 0 | 4 | +4 | New compatibility path for bundle checksums inside `.dat` files. |
 | `GameSettings.put*` | 1 each | 1 each | 0 | Direct `flush()` calls replaced by shared `flush`. |
 | `GameSettings.flush` | 0 | 1 | +1 | New shared flush and best-effort manifest refresh. |
-| `CrashReportWriter` class | 0 | class total 39 | +39 | New reliability component. Main complexity is report write failure containment, filename collision handling, truncation, platform/thread fallback, and GDX store failures. |
+| `CrashReportWriter` component | 0 | outer class 39 + `GdxReportStore` 14 | +53 combined | New reliability component. Main complexity is report write failure containment, filename collision handling, truncation, platform/thread fallback, and GDX store failures. |
 
 ### Original Flow Graph
 
@@ -313,6 +331,7 @@ Unit test files:
 
 - `SPD-classes/src/test/java/com/watabou/utils/BundleTest.java`
 - `SPD-classes/src/test/java/com/watabou/utils/CrashReportWriterTest.java`
+- `SPD-classes/src/test/java/com/watabou/utils/FileUtilsTest.java`
 - `SPD-classes/src/test/java/com/watabou/utils/GameSettingsTest.java`
 
 | Unit test | Path exercised |
@@ -320,21 +339,29 @@ Unit test files:
 | `BundleTest.writesChecksumAndRemovesItAfterRead` | Signed write path and checksum removal after read. |
 | `BundleTest.readsSaveWithoutChecksum` | Legacy bundle path with no checksum. |
 | `BundleTest.compressedSaveRoundTripsWithChecksum` | GZIP write/read path with checksum verification. |
+| `BundleTest.gzipDetectionRequiresBothMagicBytes` | Partial GZIP magic bytes are not misdetected as compressed saves. |
+| `BundleTest.legacyLibGdxJsonSaveFallsBackWhenStrictJsonParsingFails` | Legacy libGDX JSON fallback path. |
+| `BundleTest.readRejectsStrictJsonThatIsNotAnObjectOrArray` | Strict JSON root type rejection path. |
 | `BundleTest.rejectsSaveWithChecksumMismatch` | Tampered bundle mismatch rejection path. |
 | `BundleTest.checksumDoesNotDependOnInsertionOrder` | Canonical key ordering path. |
 | `BundleTest.checksumCoversNestedObjectsArraysBooleansAndNulls` | Canonical object, array, boolean, and null paths. |
+| `BundleTest.nestedChecksumNamedFieldsAreTreatedAsRegularData` | Nested `__checksum` fields are treated as ordinary nested data. |
 | `BundleTest.checksumChangesWhenContentChanges` | Content mutation changes checksum path. |
 | `BundleTest.readChecksumReturnsBundleChecksum` | `readChecksum` present-checksum path. |
 | `BundleTest.readChecksumReturnsNullForLegacyBundle` | `readChecksum` absent-checksum path. |
 | `BundleTest.readChecksumRejectsMalformedChecksumField` | Non-string checksum rejection path. |
 | `BundleTest.primitiveValuesClassesKeysAndRemovalRoundTrip` | Primitive put/get, class, key listing, and remove paths. |
 | `BundleTest.arrayValuesRoundTripForAllSupportedTypes` | Array serialization and typed array getters. |
+| `BundleTest.putMethodsReportJsonExceptionsWhenBackingObjectRejectsWrites` | Bundle put exception-reporting paths. |
 | `BundleTest.nestedBundlesRootArraysAndBundleArraysAreReadable` | Nested bundle and root array reading paths. |
 | `BundleTest.bundlableObjectsCollectionsAndAliasesRestore` | Bundlable restore, collection restore, and alias path. |
+| `BundleTest.unrestorableBundlablesReturnNullOrAreSkipped` | Unrestorable bundlable fallback and skip paths. |
 | `BundleTest.classAliasesAndInvalidObjectsUseFallbacks` | Alias lookup, invalid class, and fallback paths. |
 | `BundleTest.missingMalformedValuesReturnFallbacks` | Malformed/missing value fallback paths. |
 | `BundleTest.writeReturnsFalseWhenOutputStreamFails` | Bundle write exception path. |
 | `BundleTest.legacyLibGdxJsonDuplicateKeysArePrunedRecursively` | Legacy libGDX JSON fallback and duplicate-key pruning path. |
+| `BundleTest.canonicalValueWriterHandlesJavaNull` | Canonical writer Java-null path. |
+| `BundleTest.checksumReportsMissingSha256ProviderAsIOException` | Missing SHA-256 provider is wrapped as `IOException`. |
 | `CrashReportWriterTest.writesReportForHandledException` | Normal handled-exception report write path. |
 | `CrashReportWriterTest.handlesNullThrowableAndNullMessage` | Null throwable/message fallback path. |
 | `CrashReportWriterTest.preservesFullStackTraceAndCauseChain` | Full stack and cause-chain rendering path. |
@@ -345,11 +372,30 @@ Unit test files:
 | `CrashReportWriterTest.writeReportReturnsNullWhenAllCandidateNamesAlreadyExist` | Filename collision exhaustion path. |
 | `CrashReportWriterTest.runtimeFailureFromStoreReturnsNull` | Unexpected store runtime failure path. |
 | `CrashReportWriterTest.gdxConfiguredStoreWritesToCrashReportDirectory` | GDX-backed store success path. |
+| `CrashReportWriterTest.gdxConfiguredStoreWritesToExistingCrashReportDirectory` | Existing crash report directory path. |
 | `CrashReportWriterTest.gdxConfiguredStoreRejectsReportDirectoryThatIsAFile` | Report directory is file rejection path. |
 | `CrashReportWriterTest.gdxConfiguredStoreHandlesDirectoryCreationWriteMoveDeleteAndExistsFailures` | GDX store directory/write/move/delete/exists failure paths. |
+| `CrashReportWriterTest.platformNameIsWrittenWhenGdxAppIsAvailable` | Platform lookup success path. |
 | `CrashReportWriterTest.platformLookupFailureFallsBackToUnknown` | Platform lookup exception fallback path. |
+| `CrashReportWriterTest.nullPlatformFallsBackToUnknown` | Null platform fallback path. |
 | `CrashReportWriterTest.unknownVersionAndNullTypeUseFallbackReportValues` | Unknown version and null report type fallback path. |
 | `CrashReportWriterTest.writeReportPersistsHandledReportThroughWriter` | Writer store persistence path. |
+| `CrashReportWriterTest.utf8TruncationHelpersHandleEmptyAndPartialCharacters` | UTF-8 truncation edge cases. |
+| `FileUtilsTest.protectedBundleWriteCreatesSaveManifest` | Protected bundle write creates `save_checksums.dat`. |
+| `FileUtilsTest.manifestStoresProtectedFilePathsCorrectly` | Manifest includes the expected protected paths. |
+| `FileUtilsTest.manifestExcludesRecoveryDirectoryFiles` | Recovery files are excluded from manifest protection scope. |
+| `FileUtilsTest.manifestUpdatesAfterSaveOverwriteOrDelete` | Overwrite/delete refreshes manifest state. |
+| `FileUtilsTest.cleanTempFilesReturnsFalseWhenNothingWasRecovered` | Temp cleanup no-op path. |
+| `FileUtilsTest.fileDirectoryHelpersHandleEmptyFilesDirectoriesAndNullHandles` | File helper defensive paths. |
+| `FileUtilsTest.cleanTempFilesCombinesRecursiveRecoveryResultsAcrossDirectories` | Recursive temp cleanup aggregation path. |
+| `FileUtilsTest.fileActionsSwallowManifestRefreshIoFailuresAfterPrimaryAction` | Primary action succeeds despite manifest refresh failure. |
+| `FileUtilsTest.getFileHandleReturnsNullForUnmappedFileTypeSwitchEntry` | Unmapped file type fallback path. |
+| `FileUtilsTest.bundleToManifestFileDoesNotRecursivelyRefreshManifest` | Manifest self-write recursion guard. |
+| `FileUtilsTest.updateSaveManifestNoopsWhenRootIsMissingOrNull` | Missing/null root no-op paths. |
+| `FileUtilsTest.emptyOrDirectoryManifestKeepsLegacyReadsCompatible` | Empty/directory manifest legacy compatibility. |
+| `FileUtilsTest.malformedManifestMetadataRejectsProtectedReads` | Malformed manifest rejection path. |
+| `FileUtilsTest.manifestPathHelpersClassifyOnlyActiveTopLevelGameFiles` | Protected path classifier edge cases. |
+| `GameSettingsTest.lazyInitializesPreferencesFromGdxApp` | Lazy preference initialization path. |
 | `GameSettingsTest.containsAndGettersReturnStoredOrDefaultValues` | Normal preference getter paths. |
 | `GameSettingsTest.numericGettersClampOutOfRangeValuesAndPersistClamp` | Integer/long range clamp and persistence paths. |
 | `GameSettingsTest.stringGetterRejectsOverLengthValuesAndPersistsDefault` | Overlength string rejection path. |
@@ -377,13 +423,15 @@ Structured suite:
 |---|---|---|
 | `bundleWritesCreateManifestAndDetectExternalTampering` | `bundleToFile`, manifest write, `bundleFromFile` | Save -> manifest created -> external edit -> load rejected -> save refreshes manifest. |
 | `manifestIncludesOnlyProtectedSaveFilesInStableOrder` | scanner, filters, sorting | Mixed files/directories -> protected paths only -> stable sorted manifest. |
-| `fileHandleAndBasicFileHelpersCoverAllSupportedFileTypes` | `getFileHandle`, file helpers | Exercise supported file types and file helper behaviours. |
+| `fileHelpers_resolveReadAndWriteAcrossAllSupportedFileTypes` | `getFileHandle`, file helpers | Exercise supported file types and file helper behaviours. |
 | `randomByteFlipsInAllGameSaveFilesAreRejected` | manifest + bundle checksum | Write save set -> mutate bytes -> every protected save rejects. |
 | `renamingGameRootFolderKeepsManifestValid` | path normalization | Rename `gameN` root -> normalized path remains compatible. |
+| `rawGamePathManifestStaysCompatibleAfterSlotRename` | path normalization | Raw game paths remain compatible after slot rename. |
+| `legacyBundleChecksumManifestStaysCompatibleWithSignedSaveFiles` | legacy compatibility | Legacy bundle-checksum manifest remains compatible with signed saves. |
 | `renamingProtectedGameSaveFileIsRejected` | protected path validation | Rename protected file -> manifest mismatch rejection. |
 | `movingRootSaveFileIntoGameFolderIsRejected` | path normalization and protected-file set | Move root save into slot folder -> mismatch rejection. |
 | `blindJsonValueEditWithStaleChecksumIsRejected` | bundle checksum + manifest | JSON value edit without recomputing checksum -> rejection. |
-| `deleteAndOverwriteRefreshManifest` | delete/overwrite helpers + manifest refresh | File deletion and overwrite update manifest state. |
+| `deleteFileAndOverwriteFile_refreshManifestAfterPrimaryAction` | delete/overwrite helpers + manifest refresh | File deletion and overwrite update manifest state. |
 | `cleanTempFilesRefreshesManifestAfterRecoveringNewerTempFile` | temp recovery + manifest refresh | Newer valid temp replaces original and refreshes manifest. |
 | `cleanTempFilesDeletesEmptyFilesInvalidTempsAndOlderTemps` | temp cleanup branches | Empty, invalid, and older temp cleanup paths. |
 | `cleanTempFilesReplacesInvalidOriginalAndRecursesIntoSubdirectories` | recursive cleanup | Invalid original replaced from temp inside subdir traversal. |
@@ -392,9 +440,9 @@ Structured suite:
 | `bundleFromFileRejectsMissingEmptyDirectoryAndGdxFailures` | read failure paths | Missing, empty, directory, and GDX failure rejection. |
 | `bundleToFileOverwritesExistingFileThroughTempFile` | temp write/replace path | Existing file is overwritten through temp move. |
 | `bundleToFileWrapsGdxWriteFailuresAsIoExceptions` | write failure wrapping | GDX write failure becomes `IOException`. |
-| `verifyRejectsInvalidManifestShapes` | manifest parser/validator | Missing overall checksum, array mismatch, bad overall checksum rejected. |
+| `bundleFromFile_rejectsInvalidManifestShapes` | manifest parser/validator | Missing overall checksum, array mismatch, bad overall checksum rejected. |
 | `manifestSortsDuplicateNormalizedPathsByChecksum` | sorting comparator | Duplicate normalized paths sorted by checksum. |
-| `checksumHelpersWrapUnavailableSha256Provider` | checksum helper exception path | Missing provider is wrapped as `IOException`. |
+| `manifestRefreshAndBundleRead_wrapUnavailableSha256Provider` | checksum helper exception path | Missing provider is wrapped as `IOException`. |
 | `gameSettingsWritesRefreshManifestForEachSupportedType` | `GameSettings.put*` + manifest | Preference writes refresh manifest for each supported type. |
 | `gameSettingsFlushDoesNotPropagateManifestUpdateFailures` | `GameSettings.flush` containment | Manifest update failure is reported but not propagated. |
 
@@ -416,9 +464,10 @@ The benchmark deletion flow permanently overwrote/deleted save files. The featur
 |---|---:|---:|---:|---|
 | `Dungeon.deleteGame` | approx. 3 | approx. 3 | 0 | New recovery call is linear and before existing `deleteLevels` branch. Deletion branch complexity is unchanged. |
 | `RecoveryManager.moveToRecovery` | 0 | 2 | +2 | New method. Paths: source slot missing return; source exists -> copy -> prune. |
-| `RecoveryManager.listRecoveryEntries` | 0 | 3 | +3 | New method. Paths: iterate recovery dir, keep directories, ignore files, sort. |
+| `RecoveryManager.listRecoveryEntries` | 0 | 4 | +4 | New method. Paths: iterate recovery dir, keep directories, ignore files/malformed entries, sort. |
 | `RecoveryManager.restoreEntry` | 0 | 1 | +1 | New method. Linear delete target, copy entry, mark slot unknown. |
 | `RecoveryManager.slotFromEntryName` | 0 | 4 | +4 | New method. Paths: malformed name, matching slot, non-matching slots, unknown return. |
+| `RecoveryManager.isRecoveryEntryName` | 0 | 4 | +4 | New helper. Paths: missing separator, non-numeric timestamp, missing/invalid slot folder, valid entry. |
 | `RecoveryManager.copyGameDir` | 0 | 3 | +3 | New method. Paths: iterate files, copy non-directory, skip directory. |
 | `RecoveryManager.pruneOldEntries` | 0 | 2 | +2 | New method. Paths: under/equal cap, over cap loop deleting oldest. |
 | `StartScene.create` recovery block | existing | +1 local branch | +1 | Adds `if recoveries exist` and button creation/click path. |
@@ -502,10 +551,12 @@ Unit test file:
 | `listRecoveryEntries_noRecoveryDirectory_returnsEmptyList` | Missing recovery directory -> empty list. |
 | `listRecoveryEntries_multipleEntries_sortedOldestFirst` | Directory entries returned sorted ascending by timestamp prefix. |
 | `listRecoveryEntries_ignoresFilesInRecoveryDirectory` | File entries skipped; only directories listed. |
+| `listRecoveryEntries_ignoresMalformedEntryDirectories` | Malformed directory names skipped. |
 | `moveToRecovery_nonExistentSourceSlot_doesNothing` | Missing source slot -> early return and no recovery entry. |
 | `moveToRecovery_existingSlot_createsRecoveryEntryWithFiles` | Existing slot -> recovery entry with flat save files. |
 | `moveToRecovery_existingSlot_skipsNestedDirectories` | Existing slot with nested dir -> flat files copied, nested dir skipped. |
-| `moveToRecovery_sixDeletions_onlyFiveEntriesRetained` | Repeated deletes -> retention pruning removes oldest entry. |
+| `restoreEntry_ignoresManifestUpdateIOException` | Restore succeeds when best-effort manifest refresh fails. |
+| `moveToRecovery_prunesOldestEntryWhenMoreThanFiveEntriesExist` | Repeated deletes -> retention pruning removes oldest entry. |
 
 ### Integration Testing Analysis
 
@@ -527,10 +578,10 @@ Structured suite:
 
 | Integration test | Components crossed | Scenario structure |
 |---|---|---|
-| `fullDeleteAndRestore_fileContentPreservedIntact` | move, list, restore, file bytes | Create slot -> move to recovery -> delete slot -> restore -> bytes match. |
-| `multipleDeletes_restoreCorrectEntryToTargetSlot` | multiple moves, sorted list, restore | Recoveries for slots 1/2/3 -> restore second recovery into slot 3 -> only slot 2 marker exists. |
-| `restoreToOccupiedSlot_existingFilesOverwritten` | restore, target cleanup | Recovery restored into occupied slot -> occupant file removed. |
-| `sixDeletions_onlyOldestRemovedAndFiveRemain` | move, prune, sort | Six recovery creations -> five remain -> oldest removed -> order preserved. |
+| `moveToRecoveryThenRestore_preservesFileContentIntact` | move, list, restore, file bytes | Create slot -> move to recovery -> delete slot -> restore -> bytes match. |
+| `restoreEntry_copiesSelectedRecoveryEntryToTargetSlot` | multiple moves, sorted list, restore | Recoveries for slots 1/2/3 -> restore selected recovery into target slot. |
+| `restoreEntry_overwritesOccupiedTargetSlot` | restore, target cleanup | Recovery restored into occupied slot -> occupant file removed. |
+| `moveToRecovery_prunesOldestEntryWhenRetentionLimitExceeded` | move, prune, sort | Six recovery creations -> five remain -> oldest removed -> order preserved. |
 | `restoreEntry_doesNotDeleteRecoveryEntry` | restore and list | Restore recovery into slot -> recovery entry still listed afterward. |
 
 ## Cross-Feature Observations
@@ -539,12 +590,51 @@ Structured suite:
 |---|---|---|
 | Mob behaviour logging | Existing AI state-machine branches are preserved; added complexity is isolated in new observational helpers and logger code. | Strong unit coverage for logger internals and integration coverage for mob instrumentation paths. |
 | Save integrity checksum | Highest complexity increase, especially manifest validation and canonical JSON. | Broadest integration suite; tests tampering, legacy compatibility, path normalization, failure containment, and settings interaction. |
-| Recovery saves | Moderate complexity, mostly new and localized in `RecoveryManager` and restore UI. | Unit tests cover manager edge cases; integration tests cover end-to-end file preservation, restore, overwrite, and retention. |
+| Recovery saves | Moderate complexity, mostly new and localized in `RecoveryManager` and restore UI. | Unit tests cover manager edge cases; integration tests cover end-to-end file preservation, restore, overwrite, retention, and manifest-refresh failure containment. |
 
-Latest coverage evidence from `./gradlew featureTest --no-daemon`:
+### Cross-Feature Integration Tests
 
-| Feature | Line coverage | Branch coverage | Instruction coverage |
-|---|---:|---:|---:|
-| Mob behaviour logging | 96.0% | 100.0% | 95.8% |
-| Save integrity checksum | 94.0% | 87.2% | 96.8% |
-| Recovery saves | 97.2% | 100.0% | 98.3% |
+Integration test file:
+
+- `core/src/integrationTest/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MergedFeatureIntegrationTest.java`
+
+| Integration test | Features crossed | Scenario structure |
+|---|---|---|
+| `saveWriteThenMobLog_keepsManifestValidAndIgnoresLogFile` | Mob logging + save integrity | Save write -> real mob log file sink -> manifest still tracks only protected save files. |
+| `deleteToRecovery_thenRestore_preservesChecksumReadableSave` | Recovery + save integrity | Protected save -> recovery -> delete -> restore -> restored save loads. |
+| `restoredSaveTampering_isRejectedAfterRecoveryRestore` | Recovery + save integrity | Restore save -> external tamper -> protected read rejected. |
+| `mobLogBeforeDelete_isCopiedOnlyIfInsideSlotAndDoesNotBreakRecovery` | Mob logging + recovery + manifest filtering | Slot-local diagnostic log copied to recovery but excluded from save manifest. |
+| `recoveryDirectoryContents_areExcludedFromSaveManifest` | Recovery + save integrity | Recovery entries exist but manifest excludes recovery directory contents. |
+| `multipleRecoveredSlots_restoreChosenEntryAndManifestValidatesTarget` | Recovery + save integrity | Multiple recovery entries -> chosen restore -> target slot validates through manifest. |
+| `loggerSinkFailure_doesNotPreventSaveManifestOrRecoveryWorkflow` | Mob logging + recovery + save integrity | Throwing logger sink is isolated; save and recovery workflow still succeeds. |
+| `helperDeletionWorkflow_updatesManifestAndRecoveryKeepsOriginalBytes` | Recovery + save integrity | FileUtils deletion updates manifest while recovery retains original bytes. |
+| `deleteGameRestoreLoadThenTamper_lifecycleKeepsRecoveryReadableAndRejectsTamper` | All three | Log events -> `Dungeon.deleteGame` -> restore -> load -> later tamper rejection. |
+
+### Latest Test Evidence
+
+Latest local verification on 2026-05-23:
+
+```bash
+cd shattered-pixel-dungeon-3.0.2
+JAVA_HOME=/Library/Java/JavaVirtualMachines/amazon-corretto-17.jdk/Contents/Home GRADLE_USER_HOME=.gradle ./gradlew featureTest --no-daemon
+```
+
+Result: **172 tests passed**, with 0 failures, 0 errors, and 0 skipped tests.
+
+| Suite | Tests |
+|---|---:|
+| `:core:test` | 56 |
+| `:core:integrationTest` | 27 |
+| `:SPD-classes:test` | 65 |
+| `:SPD-classes:integrationTest` | 24 |
+| **Total** | **172** |
+
+Latest scoped JaCoCo evidence from `featureTest`:
+
+| Scope | Classes included by JaCoCo filter | Line coverage | Branch coverage | Instruction coverage |
+|---|---|---:|---:|---:|
+| Mob behaviour logging | `MobBehaviourLogger*` | 96.0% | 100.0% | 95.8% |
+| Recovery saves | `RecoveryManager*` | 100.0% | 100.0% | 100.0% |
+| Save integrity checksum | `Bundle*`, `FileUtils*`, `GameSettings*`, `CrashReportWriter*` | 100.0% | 98.9% | 99.9% |
+
+Important coverage scope note: `core/build.gradle` filters JaCoCo to `MobBehaviourLogger*` and `RecoveryManager*`. It does not include the full upstream game or UI classes such as `Dungeon`, `StartScene`, and `WndRecoverySave`. Those UI and lifecycle paths are covered by source review and integration tests, but their line coverage is not represented in the filtered coverage percentages.
