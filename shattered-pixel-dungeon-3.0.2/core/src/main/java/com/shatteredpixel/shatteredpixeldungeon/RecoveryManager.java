@@ -70,7 +70,7 @@ public class RecoveryManager {
     }
 
     /**
-     * Returns the names of all recovery-entry directories inside {@value #RECOVERY_DIR},
+     * Returns the names of all valid recovery-entry directories inside {@value #RECOVERY_DIR},
      * sorted oldest-first (ascending by the timestamp prefix embedded in each name).
      *
      * @return list of entry names; empty if no recoveries exist
@@ -79,7 +79,7 @@ public class RecoveryManager {
         ArrayList<String> entries = new ArrayList<>();
         for (String name : FileUtils.filesInDir(RECOVERY_DIR)) {
             FileHandle handle = FileUtils.getFileHandle(RECOVERY_DIR + "/" + name);
-            if (handle.isDirectory()) {
+            if (handle.isDirectory() && isRecoveryEntryName(name)) {
                 entries.add(name);
             }
         }
@@ -124,6 +124,16 @@ public class RecoveryManager {
             if (GamesInProgress.gameFolder(i).equals(folder)) return i;
         }
         return -1;
+    }
+
+    private static boolean isRecoveryEntryName(String entryName) {
+        String[] parts = entryName.split("_", 2);
+        if (parts.length < 2) return false;
+        try {
+            return Long.parseLong(parts[0]) >= 0 && slotFromEntryName(entryName) != -1;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     // Copies every non-directory file from srcDir into dstDir (flat, no recursion needed
