@@ -44,6 +44,8 @@ import java.io.RandomAccessFile;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
 import java.security.Security;
 import java.util.HashMap;
@@ -124,12 +126,14 @@ public class FileUtilsSaveManifestIntegrationTest {
 		mkdirs("game1/nested");
 		mkdirs("game");
 		mkdirs("gameA");
+		mkdirs("recovery/123_game1");
 
 		writeSignedBundle("game1/depth1.dat", bundle("depth", 1));
 		writeSignedBundle("game1/depth1.dat.tmp", bundle("depth", 99));
 		writeSignedBundle("game1/nested/depth2.dat", bundle("depth", 2));
 		writeSignedBundle("game/depth1.dat", bundle("depth", 3));
 		writeSignedBundle("gameA/depth1.dat", bundle("depth", 4));
+		writeSignedBundle("recovery/123_game1/game.dat", bundle("depth", 5));
 		writeText("rankings.dat", "{\"score\":1}");
 		writeText(GameSettings.DEFAULT_PREFS_FILE, "<settings/>");
 		writeText("notes.txt", "ignore");
@@ -204,6 +208,44 @@ public class FileUtilsSaveManifestIntegrationTest {
 		assertEquals(1, FileUtils.bundleFromFile("game2/game.dat").getInt("depth"));
 		assertEquals(2, FileUtils.bundleFromFile("game2/depth1.dat").getInt("depth"));
 		assertEquals(3, FileUtils.bundleFromFile("game2/depth2-branch1.dat").getInt("depth"));
+	}
+
+	@Test
+	public void rawGamePathManifestStaysCompatibleAfterSlotRename() throws IOException {
+		mkdirs("game1");
+		FileUtils.bundleToFile("game1/game.dat", bundle("depth", 1));
+		Bundle generated = FileUtils.bundleFromFile(MANIFEST);
+		String fileChecksum = generated.getStringArray("checksums")[0];
+
+		writeManifest(new String[]{"game1/game.dat"}, new String[]{fileChecksum});
+
+		assertTrue(file("game1").renameTo(file("game2")));
+		assertEquals(1, FileUtils.bundleFromFile("game2/game.dat").getInt("depth"));
+	}
+
+	@Test
+	public void legacyBundleChecksumManifestStaysCompatibleWithSignedSaveFiles() throws IOException {
+		mkdirs("game1");
+		FileUtils.bundleToFile("game1/game.dat", bundle("depth", 1));
+		writeBytes("rankings.dat", new byte[]{7});
+		writeText(GameSettings.DEFAULT_PREFS_FILE, "<settings/>");
+		FileInputStream input = new FileInputStream(file("game1/game.dat"));
+		String bundleChecksum;
+		try {
+			bundleChecksum = Bundle.readChecksum(input);
+		} finally {
+			input.close();
+		}
+
+		writeManifest(
+				new String[]{"game*/game.dat", "rankings.dat", GameSettings.DEFAULT_PREFS_FILE},
+				new String[]{
+						"bundle:" + bundleChecksum,
+						"bytes:" + fileChecksum(file("rankings.dat")),
+						"bytes:" + fileChecksum(file(GameSettings.DEFAULT_PREFS_FILE))
+				});
+
+		assertEquals(1, FileUtils.bundleFromFile("game1/game.dat").getInt("depth"));
 	}
 
 	@Test
@@ -517,6 +559,20 @@ public class FileUtilsSaveManifestIntegrationTest {
 		writeText(file(relative), text);
 	}
 
+	private void writeBytes( String relative, byte[] bytes ) throws IOException {
+		File file = file(relative);
+		File parent = file.getParentFile();
+		if (parent != null) {
+			assertTrue(parent.exists() || parent.mkdirs());
+		}
+		FileOutputStream output = new FileOutputStream(file);
+		try {
+			output.write(bytes);
+		} finally {
+			output.close();
+		}
+	}
+
 	private void writeText( File file, String text ) throws IOException {
 		File parent = file.getParentFile();
 		if (parent != null) {
@@ -567,6 +623,68 @@ public class FileUtilsSaveManifestIntegrationTest {
 			assertTrue(Bundle.write(bundle, output, compressed));
 		} finally {
 			output.close();
+		}
+	}
+
+	private void writeManifest( String[] paths, String[] checksums ) throws IOException {
+		Bundle manifest = new Bundle();
+		manifest.put("version", 1);
+		manifest.put("paths", paths);
+		manifest.put("checksums", checksums);
+		manifest.put("overall_checksum", manifestOverallChecksum(paths, checksums));
+		writeSignedBundle(MANIFEST, manifest);
+	}
+
+	private String manifestOverallChecksum( String[] paths, String[] checksums ) throws IOException {
+		StringBuilder builder = new StringBuilder();
+		for (int i = 0; i < paths.length; i++) {
+			builder.append(paths[i]);
+			builder.append('\n');
+			builder.append(checksums[i]);
+			builder.append('\n');
+		}
+		return stringChecksum(builder.toString());
+	}
+
+	private String stringChecksum( String text ) throws IOException {
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			byte[] hash = digest.digest(text.getBytes("UTF-8"));
+			StringBuilder result = new StringBuilder("sha256:");
+			for (int i = 0; i < hash.length; i++) {
+				String hex = Integer.toHexString(hash[i] & 0xff);
+				if (hex.length() == 1) result.append('0');
+				result.append(hex);
+			}
+			return result.toString();
+		} catch (NoSuchAlgorithmException e) {
+			throw new IOException(e);
+		}
+	}
+
+	private String fileChecksum( File file ) throws IOException {
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			FileInputStream input = new FileInputStream(file);
+			try {
+				byte[] buffer = new byte[1024];
+				int read;
+				while ((read = input.read(buffer)) != -1) {
+					digest.update(buffer, 0, read);
+				}
+			} finally {
+				input.close();
+			}
+			byte[] hash = digest.digest();
+			StringBuilder result = new StringBuilder("sha256:");
+			for (int i = 0; i < hash.length; i++) {
+				String hex = Integer.toHexString(hash[i] & 0xff);
+				if (hex.length() == 1) result.append('0');
+				result.append(hex);
+			}
+			return result.toString();
+		} catch (NoSuchAlgorithmException e) {
+			throw new IOException(e);
 		}
 	}
 

@@ -21,9 +21,9 @@
 
 package com.watabou.utils;
 
+import com.badlogic.gdx.Application;
 import com.badlogic.gdx.Files;
 import com.badlogic.gdx.Gdx;
-import com.badlogic.gdx.Application;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.utils.GdxRuntimeException;
 import com.watabou.noosa.Game;
@@ -39,8 +39,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 
@@ -208,6 +209,23 @@ public class CrashReportWriterTest {
 	}
 
 	@Test
+	public void gdxConfiguredStoreWritesToExistingCrashReportDirectory() throws IOException {
+		File root = temporaryFolder.newFolder("gdx-store-existing-dir");
+		assertTrue(new File(root, "crash-reports").mkdirs());
+		Gdx.files = new LocalFiles(root);
+		CrashReportWriter.configure(Files.FileType.Local, "");
+
+		String fileName = CrashReportWriter.writeReport(
+				new RuntimeException("existing dir"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION);
+
+		assertNotNull(fileName);
+		String report = new String(java.nio.file.Files.readAllBytes(
+				new File(new File(root, "crash-reports"), fileName).toPath()), StandardCharsets.UTF_8);
+		assertTrue(report.contains("Exception Message: existing dir"));
+	}
+
+	@Test
 	public void gdxConfiguredStoreRejectsReportDirectoryThatIsAFile() throws IOException {
 		File root = temporaryFolder.newFolder("gdx-store-file-conflict");
 		assertTrue(new File(root, "crash-reports").createNewFile());
@@ -222,11 +240,33 @@ public class CrashReportWriterTest {
 	@Test
 	public void gdxConfiguredStoreHandlesDirectoryCreationWriteMoveDeleteAndExistsFailures() throws IOException {
 		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.DIR_CANNOT_BE_CREATED);
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.DIR_CREATED_AS_FILE);
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.REPORT_DIR_EXISTS_THROWS);
 		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.WRITE_THROWS);
 		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.FINAL_ALREADY_EXISTS);
+		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.FINAL_CREATED_ON_TEMP_WRITE);
 		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.FINAL_MISSING_AFTER_MOVE);
 		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.MOVE_THROWS);
 		assertGdxStoreWriteReturnsNull(ScriptedFiles.Mode.EXISTS_THROWS);
+	}
+
+	@Test
+	public void platformNameIsWrittenWhenGdxAppIsAvailable() throws IOException {
+		Gdx.app = (Application) Proxy.newProxyInstance(
+				Application.class.getClassLoader(),
+				new Class[]{Application.class},
+				(proxy, method, args) -> {
+					if ("getType".equals(method.getName())) {
+						return Application.ApplicationType.Desktop;
+					}
+					return defaultValue(method.getReturnType());
+				});
+
+		String fileName = CrashReportWriter.writeReport(
+				new RuntimeException("known platform"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION);
+
+		assertTrue(store.read(fileName).contains("Platform: Desktop"));
 	}
 
 	@Test
@@ -243,6 +283,17 @@ public class CrashReportWriterTest {
 
 		String fileName = CrashReportWriter.writeReport(
 				new RuntimeException("platform fallback"),
+				CrashReportWriter.ReportType.HANDLED_EXCEPTION);
+
+		assertTrue(store.read(fileName).contains("Platform: unknown"));
+	}
+
+	@Test
+	public void nullPlatformFallsBackToUnknown() throws IOException {
+		Gdx.app = null;
+
+		String fileName = CrashReportWriter.writeReport(
+				new RuntimeException("null platform"),
 				CrashReportWriter.ReportType.HANDLED_EXCEPTION);
 
 		assertTrue(store.read(fileName).contains("Platform: unknown"));
@@ -296,6 +347,21 @@ public class CrashReportWriterTest {
 		String report = new String(java.nio.file.Files.readAllBytes(reports[0].toPath()), StandardCharsets.UTF_8);
 		assertTrue(report.contains("Report Type: HANDLED_EXCEPTION"));
 		assertTrue(report.contains("Exception Message: from writer"));
+	}
+
+	@Test
+	public void utf8TruncationHelpersHandleEmptyAndPartialCharacters() throws Exception {
+		Method prefix = CrashReportWriter.class.getDeclaredMethod("prefixByUtf8Bytes", String.class, int.class);
+		Method suffix = CrashReportWriter.class.getDeclaredMethod("suffixByUtf8Bytes", String.class, int.class);
+		prefix.setAccessible(true);
+		suffix.setAccessible(true);
+
+		assertEquals("", prefix.invoke(null, "", 10));
+		assertEquals("", suffix.invoke(null, "", 10));
+		assertEquals("", prefix.invoke(null, "é", 1));
+		assertEquals("", suffix.invoke(null, "é", 1));
+		assertEquals("é", prefix.invoke(null, "éx", 2));
+		assertEquals("é", suffix.invoke(null, "xé", 2));
 	}
 
 	private static class LocalStore implements CrashReportWriter.ReportStore {
@@ -494,8 +560,11 @@ public class CrashReportWriterTest {
 
 		private enum Mode {
 			DIR_CANNOT_BE_CREATED,
+			DIR_CREATED_AS_FILE,
+			REPORT_DIR_EXISTS_THROWS,
 			WRITE_THROWS,
 			FINAL_ALREADY_EXISTS,
+			FINAL_CREATED_ON_TEMP_WRITE,
 			FINAL_MISSING_AFTER_MOVE,
 			MOVE_THROWS,
 			EXISTS_THROWS
@@ -533,6 +602,9 @@ public class CrashReportWriterTest {
 
 		@Override
 		public boolean exists() {
+			if (mode == ScriptedFiles.Mode.REPORT_DIR_EXISTS_THROWS && "crash-reports".equals(logicalPath)) {
+				throw new GdxRuntimeException("directory exists failed");
+			}
 			if (mode == ScriptedFiles.Mode.DIR_CANNOT_BE_CREATED && "crash-reports".equals(logicalPath)) {
 				return false;
 			}
@@ -550,12 +622,25 @@ public class CrashReportWriterTest {
 
 		@Override
 		public boolean isDirectory() {
+			if (mode == ScriptedFiles.Mode.DIR_CREATED_AS_FILE && "crash-reports".equals(logicalPath)) {
+				return super.isDirectory();
+			}
 			return "crash-reports".equals(logicalPath) || super.isDirectory();
 		}
 
 		@Override
 		public void mkdirs() {
-			if (mode != ScriptedFiles.Mode.DIR_CANNOT_BE_CREATED) {
+			if (mode == ScriptedFiles.Mode.DIR_CREATED_AS_FILE) {
+				try {
+					File parent = file().getParentFile();
+					if (parent != null) {
+						parent.mkdirs();
+					}
+					file().createNewFile();
+				} catch (IOException e) {
+					throw new GdxRuntimeException(e);
+				}
+			} else if (mode != ScriptedFiles.Mode.DIR_CANNOT_BE_CREATED) {
 				super.mkdirs();
 			}
 		}
@@ -564,6 +649,18 @@ public class CrashReportWriterTest {
 		public OutputStream write( boolean append ) {
 			if (mode == ScriptedFiles.Mode.WRITE_THROWS && logicalPath.endsWith(".tmp")) {
 				throw new GdxRuntimeException("write failed");
+			}
+			if (mode == ScriptedFiles.Mode.FINAL_CREATED_ON_TEMP_WRITE && logicalPath.endsWith(".tmp")) {
+				try {
+					File finalFile = new File(file().getPath().substring(0, file().getPath().length() - 4));
+					File parent = finalFile.getParentFile();
+					if (parent != null) {
+						parent.mkdirs();
+					}
+					finalFile.createNewFile();
+				} catch (IOException e) {
+					throw new GdxRuntimeException(e);
+				}
 			}
 			return new java.io.ByteArrayOutputStream();
 		}

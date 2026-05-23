@@ -23,6 +23,7 @@ package com.watabou.utils;
 
 import com.badlogic.gdx.Files;
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Application;
 import com.badlogic.gdx.Preferences;
 import com.badlogic.gdx.files.FileHandle;
 
@@ -33,11 +34,13 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
+import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class GameSettingsTest {
@@ -46,11 +49,13 @@ public class GameSettingsTest {
 	public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
 	private Files previousFiles;
+	private Application previousApp;
 	private RecordingPreferences prefs;
 
 	@Before
 	public void setUp() {
 		previousFiles = Gdx.files;
+		previousApp = Gdx.app;
 		Gdx.files = new LocalTestFiles(temporaryFolder.getRoot());
 		FileUtils.setDefaultFileProperties(Files.FileType.Local, "");
 		prefs = new RecordingPreferences();
@@ -61,6 +66,29 @@ public class GameSettingsTest {
 	public void tearDown() {
 		GameSettings.set(null);
 		Gdx.files = previousFiles;
+		Gdx.app = previousApp;
+	}
+
+	@Test
+	public void lazyInitializesPreferencesFromGdxApp() {
+		final RecordingPreferences appPrefs = new RecordingPreferences();
+		Gdx.app = (Application) Proxy.newProxyInstance(
+				Application.class.getClassLoader(),
+				new Class[]{Application.class},
+				(proxy, method, args) -> {
+					if ("getPreferences".equals(method.getName())) {
+						return appPrefs;
+					}
+					return defaultValue(method.getReturnType());
+				});
+		GameSettings.set(null);
+
+		assertFalse(GameSettings.contains("missing"));
+		GameSettings.put("int", 11);
+
+		assertEquals(11, appPrefs.getInteger("int"));
+		assertEquals(1, appPrefs.flushCount);
+		new GameSettings();
 	}
 
 	@Test
@@ -105,11 +133,26 @@ public class GameSettingsTest {
 	public void stringGetterRejectsOverLengthValuesAndPersistsDefault() {
 		prefs.putString("too_long", "abcdef");
 		prefs.putString("accepted", "abc");
+		prefs.putString("nullable", null);
 
 		assertEquals("fallback", GameSettings.getString("too_long", "fallback", 3));
 		assertEquals("abc", GameSettings.getString("accepted", "fallback", 3));
+		assertNull(GameSettings.getString("nullable", "fallback", 3));
 		assertEquals(1, prefs.flushCount);
 		assertEquals("fallback", prefs.getString("too_long"));
+	}
+
+	private static Object defaultValue( Class<?> type ) {
+		if (!type.isPrimitive()) {
+			return null;
+		}
+		if (type == Boolean.TYPE) {
+			return false;
+		}
+		if (type == Character.TYPE) {
+			return '\0';
+		}
+		return 0;
 	}
 
 	@Test
