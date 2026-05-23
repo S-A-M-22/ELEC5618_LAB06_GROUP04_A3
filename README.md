@@ -41,11 +41,11 @@ The goal is not to redesign the game. The goal is to improve software quality by
 
 This project extends Shattered Pixel Dungeon with three targeted software-quality improvements.
 
-| Feature                 | Quality Goal                    | User / Developer Benefit                                                                                       |
-| ----------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Mob Behaviour Logging   | Observability                   | Makes mob AI state changes, target changes, alerts, and spawns easier to inspect during debugging and testing. |
-| Recovery Saves          | Reliability and fault tolerance | Gives players a chance to recover save slots after deletion.                                                   |
-| Save Integrity Checksum | Data integrity                  | Detects stale, corrupted, or externally modified protected save files before they are loaded.                  |
+| Feature                 | Quality Goals                                                | Explanation                                                                                                   |
+| ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Mob Behaviour Logging   | Maintainability: Analyzability; Maintainability: Testability | Makes mob AI behaviour easier to inspect, diagnose, and verify during debugging and tests. |
+| Recovery Saves          | Reliability: Recoverability                                  | Preserves deleted save slots so players have a recovery path after accidental or destructive deletion.         |
+| Save Integrity Checksum | Security: Integrity; Reliability: Fault tolerance            | Detects corrupted, stale, or externally modified protected saves and handles invalid save data safely instead of blindly loading it. |
 
 The feature report compares each feature against the first parent of the merge commit that introduced it.
 
@@ -109,6 +109,7 @@ The source checkout keeps the upstream game inside `shattered-pixel-dungeon-3.0.
 
 The three improvements were assessed using a software-quality framework based on:
 
+* **Quality goal taxonomy:** each feature has one or more goals selected from the assignment quality characteristics: Functional Suitability, Reliability, Performance efficiency, Operability, Security, Compatibility, Maintainability, or Portability.
 * **User impact:** whether the change improves gameplay reliability, save safety, or debugging clarity.
 * **Complexity placement:** whether new complexity is isolated in new helper components instead of making legacy logic harder to reason about.
 * **Unit testing:** whether individual methods and edge cases are covered.
