@@ -24,6 +24,8 @@ package com.watabou.utils;
 import com.badlogic.gdx.utils.JsonReader;
 import com.badlogic.gdx.utils.JsonValue;
 
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
@@ -31,9 +33,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.security.Provider;
+import java.security.Security;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertArrayEquals;
@@ -85,6 +91,43 @@ public class BundleTest {
 	}
 
 	@Test
+	public void gzipDetectionRequiresBothMagicBytes() throws IOException {
+		Bundle restored = Bundle.read(new FirstGzipByteOnlyInputStream("{\"depth\":6}"));
+
+		assertEquals(6, restored.getInt("depth"));
+	}
+
+	@Test
+	public void legacyLibGdxJsonSaveFallsBackWhenStrictJsonParsingFails() throws IOException {
+		PrintStream originalErr = System.err;
+		try {
+			System.setErr(new PrintStream(new ByteArrayOutputStream()));
+
+			Bundle restored = read("{depth:1 // legacy comment\n}");
+
+			assertEquals(1, restored.getInt("depth"));
+		} finally {
+			System.setErr(originalErr);
+		}
+	}
+
+	@Test
+	public void readRejectsStrictJsonThatIsNotAnObjectOrArray() {
+		PrintStream originalErr = System.err;
+		try {
+			System.setErr(new PrintStream(new ByteArrayOutputStream()));
+			try {
+				read("\"not a bundle\"");
+				fail("Expected non-object JSON to be rejected");
+			} catch (IOException expected) {
+				// expected
+			}
+		} finally {
+			System.setErr(originalErr);
+		}
+	}
+
+	@Test
 	public void rejectsSaveWithChecksumMismatch() throws IOException {
 		Bundle bundle = new Bundle();
 		bundle.put("depth", 3);
@@ -133,6 +176,17 @@ public class BundleTest {
 		assertTrue(json.contains("\"nested\":{\"flag\":true,\"numbers\":[1,2,3]}"));
 		assertTrue(json.contains("\"nothing\":null"));
 		assertEquals(3, read(json).getBundle("nested").getIntArray("numbers").length);
+	}
+
+	@Test
+	public void nestedChecksumNamedFieldsAreTreatedAsRegularData() throws IOException {
+		Bundle bundle = read("{\"nested\":{\"__checksum\":\"nested-value\",\"depth\":2}}");
+
+		String json = writeUncompressed(bundle);
+		Bundle restored = read(json);
+
+		assertTrue(json.contains("\"nested\":{\"__checksum\":\"nested-value\",\"depth\":2}"));
+		assertEquals("nested-value", restored.getBundle("nested").getString("__checksum"));
 	}
 
 	@Test
@@ -200,6 +254,7 @@ public class BundleTest {
 		assertTrue(bundle.remove("string"));
 		assertFalse(bundle.contains("string"));
 		assertFalse(bundle.remove("missing"));
+		assertFalse(bundle.getBundle("missing").contains("anything"));
 	}
 
 	@Test
@@ -219,6 +274,39 @@ public class BundleTest {
 		assertArrayEquals(new boolean[]{true, false}, bundle.getBooleanArray("booleans"));
 		assertArrayEquals(new String[]{"a", "b"}, bundle.getStringArray("strings"));
 		assertArrayEquals(new Class[]{TestBundlable.class, BundleTest.class}, bundle.getClassArray("classes"));
+	}
+
+	@Test
+	public void putMethodsReportJsonExceptionsWhenBackingObjectRejectsWrites() throws Exception {
+		Bundle bundle = bundleWithThrowingData();
+		Bundle nested = new Bundle();
+		nested.put("value", 1);
+
+		PrintStream originalErr = System.err;
+		try {
+			System.setErr(new PrintStream(new ByteArrayOutputStream()));
+
+			bundle.put("boolean", true);
+			bundle.put("int", 1);
+			bundle.put("long", 2L);
+			bundle.put("float", 3.5f);
+			bundle.put("string", "value");
+			bundle.put("class", TestBundlable.class);
+			bundle.put("bundle", nested);
+			bundle.put("bundlable", new TestBundlable(4, "bundlable"));
+			bundle.put("enum", TestMode.SECOND);
+			bundle.put("ints", new int[]{1});
+			bundle.put("longs", new long[]{2L});
+			bundle.put("floats", new float[]{3.5f});
+			bundle.put("booleans", new boolean[]{true});
+			bundle.put("strings", new String[]{"value"});
+			bundle.put("classes", new Class[]{TestBundlable.class});
+			bundle.put("collection", Collections.singletonList(new TopLevelTestBundlable(5)));
+		} finally {
+			System.setErr(originalErr);
+		}
+
+		assertTrue(bundle.getKeys().isEmpty());
 	}
 
 	@Test
@@ -247,23 +335,53 @@ public class BundleTest {
 		Bundle.addAlias(TestBundlable.class, "old.save.TestBundlable");
 		Bundle bundle = new Bundle();
 		bundle.put("single", new TestBundlable(7, "single"));
+		bundle.put("top_level", new TopLevelTestBundlable(9));
 		bundle.put("collection", Arrays.asList(
 				new TestBundlable(1, "first"),
+				new TopLevelTestBundlable(3),
 				null,
 				new TestBundlable(2, "second")));
 
 		TestBundlable single = (TestBundlable)bundle.get("single");
 		assertEquals(7, single.value);
 		assertEquals("single", single.name);
+		TopLevelTestBundlable topLevel = (TopLevelTestBundlable)bundle.get("top_level");
+		assertEquals(9, topLevel.value);
 
 		Collection<Bundlable> restored = bundle.getCollection("collection");
-		assertEquals(2, restored.size());
+		assertEquals(3, restored.size());
 
 		Bundle legacy = read("{\"single\":{\"__className\":\"old.save.TestBundlable\",\"value\":8,\"name\":\"alias\"}}");
 		TestBundlable aliasRestored = (TestBundlable)legacy.get("single");
 		assertNotNull(aliasRestored);
 		assertEquals(8, aliasRestored.value);
 		assertEquals("alias", aliasRestored.name);
+	}
+
+	@Test
+	public void unrestorableBundlablesReturnNullOrAreSkipped() throws IOException {
+		PrintStream originalErr = System.err;
+		try {
+			System.setErr(new PrintStream(new ByteArrayOutputStream()));
+
+			String nonStaticClass = NonStaticBundlable.class.getName();
+			assertNull(read("{\"single\":{\"__className\":\"" + nonStaticClass + "\"}}").get("single"));
+
+			String privateClass = PrivateBundlable.class.getName();
+			assertNull(read("{\"single\":{\"__className\":\"" + privateClass + "\"}}").get("single"));
+			assertTrue(read("{\"collection\":[{\"__className\":\"missing.Type\"}]}").getCollection("collection").isEmpty());
+		} finally {
+			System.setErr(originalErr);
+		}
+
+		Bundle bundle = new Bundle();
+		bundle.put("object", (Bundlable)null);
+		bundle.put("mode", (Enum<?>)null);
+		bundle.put("collection", Collections.singletonList(new NonStaticBundlable()));
+
+		assertFalse(bundle.contains("object"));
+		assertFalse(bundle.contains("mode"));
+		assertTrue(bundle.getCollection("collection").isEmpty());
 	}
 
 	@Test
@@ -331,6 +449,44 @@ public class BundleTest {
 		assertEquals(2, root.get("nested").size);
 		assertEquals(1, countChildrenNamed(root.get("nested"), "floor"));
 		assertEquals(1, countChildrenNamed(root.get("nested"), "kept"));
+
+		JsonValue duplicateAtEnd = new JsonReader().parse("{depth:1,depth:2}");
+		method.invoke(null, duplicateAtEnd);
+		assertEquals(1, duplicateAtEnd.size);
+		assertEquals(1, countChildrenNamed(duplicateAtEnd, "depth"));
+	}
+
+	@Test
+	public void canonicalValueWriterHandlesJavaNull() throws Exception {
+		Method method = Bundle.class.getDeclaredMethod("appendValue", Object.class, StringBuilder.class);
+		method.setAccessible(true);
+		StringBuilder builder = new StringBuilder();
+
+		method.invoke(null, null, builder);
+
+		assertEquals("null", builder.toString());
+	}
+
+	@Test
+	public void checksumReportsMissingSha256ProviderAsIOException() throws Exception {
+		Provider[] providers = Security.getProviders();
+		for (Provider provider : providers) {
+			Security.removeProvider(provider.getName());
+		}
+		try {
+			Method method = Bundle.class.getDeclaredMethod("checksum", String.class);
+			method.setAccessible(true);
+			try {
+				method.invoke(null, "{}");
+				fail("Expected checksum to fail without SHA-256 provider");
+			} catch (Exception expected) {
+				assertTrue(expected.getCause() instanceof IOException);
+			}
+		} finally {
+			for (Provider provider : providers) {
+				Security.addProvider(provider);
+			}
+		}
 	}
 
 	private static String writeUncompressed( Bundle bundle ) throws IOException {
@@ -341,6 +497,14 @@ public class BundleTest {
 
 	private static Bundle read( String json ) throws IOException {
 		return Bundle.read(new ByteArrayInputStream(json.getBytes("UTF-8")));
+	}
+
+	private static Bundle bundleWithThrowingData() throws Exception {
+		Bundle bundle = new Bundle();
+		Field field = Bundle.class.getDeclaredField("data");
+		field.setAccessible(true);
+		field.set(bundle, new ThrowingJSONObject());
+		return bundle;
 	}
 
 	private static int countChildrenNamed( JsonValue parent, String name ) {
@@ -356,6 +520,34 @@ public class BundleTest {
 	private enum TestMode {
 		FIRST,
 		SECOND
+	}
+
+	private static class ThrowingJSONObject extends JSONObject {
+
+		@Override
+		public JSONObject put( String key, boolean value ) throws JSONException {
+			throw new JSONException("write failed");
+		}
+
+		@Override
+		public JSONObject put( String key, double value ) throws JSONException {
+			throw new JSONException("write failed");
+		}
+
+		@Override
+		public JSONObject put( String key, int value ) throws JSONException {
+			throw new JSONException("write failed");
+		}
+
+		@Override
+		public JSONObject put( String key, long value ) throws JSONException {
+			throw new JSONException("write failed");
+		}
+
+		@Override
+		public JSONObject put( String key, Object value ) throws JSONException {
+			throw new JSONException("write failed");
+		}
 	}
 
 	public static class TestBundlable implements Bundlable {
@@ -381,6 +573,58 @@ public class BundleTest {
 		public void storeInBundle( Bundle bundle ) {
 			bundle.put("value", value);
 			bundle.put("name", name);
+		}
+	}
+
+	public class NonStaticBundlable implements Bundlable {
+
+		@Override
+		public void restoreFromBundle( Bundle bundle ) {
+		}
+
+		@Override
+		public void storeInBundle( Bundle bundle ) {
+			bundle.put("value", 1);
+		}
+	}
+
+	public static class PrivateBundlable implements Bundlable {
+
+		private PrivateBundlable() {
+		}
+
+		@Override
+		public void restoreFromBundle( Bundle bundle ) {
+		}
+
+		@Override
+		public void storeInBundle( Bundle bundle ) {
+			bundle.put("value", 1);
+		}
+	}
+
+	private static class FirstGzipByteOnlyInputStream extends ByteArrayInputStream {
+
+		private boolean readingHeader = true;
+
+		private FirstGzipByteOnlyInputStream( String json ) throws IOException {
+			super(json.getBytes("UTF-8"));
+		}
+
+		@Override
+		public synchronized void reset() {
+			super.reset();
+			readingHeader = false;
+		}
+
+		@Override
+		public synchronized int read( byte[] buffer, int offset, int length ) {
+			if (readingHeader) {
+				buffer[offset] = (byte)0x1f;
+				buffer[offset + 1] = 0;
+				return 2;
+			}
+			return super.read(buffer, offset, length);
 		}
 	}
 }
