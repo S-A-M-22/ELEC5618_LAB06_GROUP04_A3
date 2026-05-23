@@ -9,7 +9,7 @@ Benchmark points:
 |---|---:|---:|---|
 | Mob behaviour logging | `7a72358` | `7a72358^1` | `Mob.java`, `MobBehaviourLogger.java` |
 | Save integrity checksum | `43c6f42` | `43c6f42^1` | `Bundle.java`, `FileUtils.java`, `GameSettings.java`, `CrashReportWriter.java` |
-| Recovery saves | `7811326` | `7811326^1` | `Dungeon.java`, `RecoveryManager.java`, `StartScene.java`, `WndRecoverySave.java` |
+| Recovery saves | `7811326` | `7811326^1` | `Dungeon.java`, `RecoveryManager.java`, `TitleScene.java`, `StartScene.java`, `WndRecoverySave.java` |
 
 Cyclomatic complexity is reported as `V(G) = decisions + 1`. Current method values are aligned with JaCoCo complexity where available. For files/classes that did not exist in the benchmark, the original complexity is `0`.
 
@@ -17,8 +17,10 @@ Cyclomatic complexity is reported as `V(G) = decisions + 1`. Current method valu
 
 - [x] Verified benchmark merge commits resolve locally: `7a72358`, `43c6f42`, `7811326`.
 - [x] Checked the production files and tests referenced by this report against the current source tree.
+- [x] Reconciled the test tables against every current `@Test` method and the generated JUnit XML result files.
+- [x] Reconciled the complexity analysis against current source plus generated JaCoCo CSV/XML counters where the JaCoCo filters include the class.
 - [x] Ran the assignment feature test command from `shattered-pixel-dungeon-3.0.2/`: `JAVA_HOME=/Library/Java/JavaVirtualMachines/amazon-corretto-17.jdk/Contents/Home GRADLE_USER_HOME=.gradle ./gradlew featureTest --no-daemon`.
-- [x] Confirmed 172 tests pass: 56 core unit, 27 core integration, 65 SPD-classes unit, 24 SPD-classes integration.
+- [x] Confirmed 172 tests pass: 56 core unit/performance, 18 core feature integration, 9 core cross-feature integration, 65 SPD-classes unit, 24 SPD-classes integration.
 - [x] Regenerated scoped JaCoCo reports for `core` and `SPD-classes`.
 - [x] Cross-checked report and README claims with independent agent reviews for feature facts, README commands, and coverage/Jacoco evidence.
 
@@ -30,6 +32,22 @@ Generated coverage artifacts:
 - `SPD-classes/build/reports/jacoco/test/html/index.html`
 - `SPD-classes/build/reports/jacoco/test/jacocoTestReport.xml`
 - `SPD-classes/build/reports/jacoco/test/jacocoTestReport.csv`
+
+Current test inventory:
+
+| Scope | Unit/performance tests | Feature integration tests | Cross-feature integration tests | Total | Source of validation |
+|---|---:|---:|---:|---:|---|
+| Core feature tests | 56 | 18 | 9 | 83 | `@Test` declarations and `core/build/test-results/**/TEST-*.xml` |
+| SPD-classes feature tests | 65 | 24 | 0 | 89 | `@Test` declarations and `SPD-classes/build/test-results/**/TEST-*.xml` |
+| **Total** | **121** | **42** | **9** | **172** | JUnit XML result files |
+
+Current JaCoCo complexity cross-check:
+
+| Scope | JaCoCo complexity result | Validation note |
+|---|---:|---|
+| `MobBehaviourLogger` including `Entry` | 31 total, 30 covered | Matches the report's claim that complexity is in the logger/helper layer; the one missed method is the real `defaultFileSink`, because tests use stub sinks. |
+| `RecoveryManager` | 21 total, 21 covered | Matches the recovery complexity table and confirms all manager branches are covered. |
+| Save-integrity filtered SPD classes | 328 total, 324 covered | Matches the filtered JaCoCo scope for `Bundle*`, `FileUtils*`, `GameSettings*`, and `CrashReportWriter*`. |
 
 ## 1. Mob Behaviour Logging
 
@@ -104,30 +122,30 @@ flowchart TD
 
 ### FSM Diagram
 
+The implemented logger FSM is intentionally high-level and observational. It is not a second AI state machine and it does not enforce an order such as spawn -> target -> hunting. Any supported event may arrive independently from the existing mob logic.
+
 ```mermaid
 stateDiagram-v2
-    state "Empty observed log" as EmptyLog
-    state "MOB_SPAWN observed" as SpawnObserved
-    state "TARGET_ASSIGNED observed" as TargetObserved
-    state "ALERT observed" as AlertObserved
-    state "STATE_CHANGE to HUNTING observed" as HuntingObserved
-    state "STATE_CHANGE to WANDERING observed" as WanderingObserved
-    state "STATE_CHANGE to FLEEING observed" as FleeingObserved
-    state "No new event observed" as NoNewEvent
+    state "Logger disabled" as Disabled
+    state "Logger enabled" as Enabled
+    state "No-op mob helper" as NoOp
+    state "Event buffered" as Buffered
+    state "Oldest event evicted" as Evicted
+    state "Sink failure isolated" as SinkFailure
+    state "Gameplay continues" as Continue
 
-    [*] --> EmptyLog: clear logger buffer / size is 0
-    EmptyLog --> SpawnObserved: add new mob / log contains MOB_SPAWN
-    SpawnObserved --> NoNewEvent: add restored mob / no MOB_SPAWN line added
-    SpawnObserved --> TargetObserved: assign visible enemy / log contains TARGET_ASSIGNED
-    TargetObserved --> HuntingObserved: aggro or notice enemy / log contains STATE_CHANGE ... -> Hunting
-    HuntingObserved --> WanderingObserved: clear or lose enemy / log contains STATE_CHANGE ... -> Wandering
-    HuntingObserved --> FleeingObserved: apply terror or dread / log contains STATE_CHANGE ... -> Fleeing
-    FleeingObserved --> HuntingObserved: fear removed with enemy visible / log contains STATE_CHANGE ... -> Hunting
-    FleeingObserved --> WanderingObserved: fear removed with no enemy visible / log contains STATE_CHANGE ... -> Wandering
-    WanderingObserved --> AlertObserved: enemy noticed or damage taken / log contains ALERT
-    AlertObserved --> HuntingObserved: same stimulus continues / log contains STATE_CHANGE ... -> Hunting
-    HuntingObserved --> TargetObserved: switch target / log contains TARGET_ASSIGNED
-    TargetObserved --> NoNewEvent: assign same target again / no extra target event
+    [*] --> Enabled: default logger state
+    Enabled --> Disabled: setEnabled(false)
+    Disabled --> Enabled: setEnabled(true)
+    Disabled --> Continue: event API called / ignored
+    Enabled --> NoOp: same state, same target, or already alerted
+    NoOp --> Continue: no duplicate log entry
+    Enabled --> Buffered: spawn, state change, target, or alert event
+    Buffered --> Evicted: buffer exceeds maxEntries
+    Evicted --> Continue: oldest entry removed
+    Buffered --> SinkFailure: terminal or file sink throws
+    SinkFailure --> Continue: exception swallowed
+    Buffered --> Continue: sinks complete or are null
 ```
 
 ### Unit Test Path Definitions
@@ -152,6 +170,9 @@ Unit test files:
 | `logTarget_recordsTargetDetails` | `logTarget` path with target name and id. |
 | `timestamp_isCurrent` | `record` timestamp creation path. |
 | `entryToString_isInformative` | `Entry.toString` rendering path. |
+| `sameState_doesNotDuplicateStateChangeLog` | `Mob.setState` no-op path: unchanged state returns without duplicate state-change event. |
+| `sameEnemy_doesNotDuplicateTargetLog` | `Mob.setEnemy` no-op path: unchanged target returns without duplicate target event. |
+| `alreadyAlerted_doesNotDuplicateAlertLog` | `Mob.markAlerted` no-op path: already-alerted mob returns without duplicate alert event. |
 | `formattedLine_matchesPattern` | `format` path including timestamp and event fields. |
 | `stateChangeLine_includesArrow` | State-change formatting path. |
 | `sinksReceiveIdenticalLines` | Terminal and file sink fan-out path. |
@@ -175,10 +196,10 @@ Unit test files:
 | `negativeIdsAccepted` | Negative id/position values accepted without validation failure. |
 | `concurrentWrites_areThreadSafe` | Synchronized append path under concurrent writers. |
 | `scriptedSequence_isCapturedInOrder` | End-to-end ordered event sequence path. |
-| `disabledOverhead` | Performance guard path for disabled logging. |
-| `enabledSpawnOverhead` | Performance path for enabled spawn logging with stub sinks. |
-| `enabledStateChangeOverhead` | Performance path for enabled state-change logging with stub sinks. |
-| `ringBufferEvictionOverhead` | Performance path for sustained eviction at buffer cap. |
+| `disabledLogger_addsLessThanTenMicrosecondsPerEvent` | Performance guard path for disabled logging. |
+| `enabledSpawnLogging_addsLessThanHundredMicrosecondsPerEvent` | Performance path for enabled spawn logging with stub sinks. |
+| `enabledStateChangeLogging_addsLessThanHundredMicrosecondsPerEvent` | Performance path for enabled state-change logging with stub sinks. |
+| `ringBufferAtCapacity_evictsOldestEntryWithinBudget` | Performance path for sustained eviction at buffer cap. |
 
 ### Integration Testing Analysis
 
@@ -301,28 +322,30 @@ flowchart TD
 
 ### FSM Diagram
 
+At a high level, protected reads are guarded by the manifest before `Bundle.read` verifies the bundle-level `__checksum`. Therefore an external edit to a protected save is normally reported as a manifest rejection first; the bundle checksum still protects direct `Bundle.read` calls, legacy/no-manifest loads, and reads where manifest validation passes.
+
 ```mermaid
 stateDiagram-v2
-    state "No save_checksums.dat visible" as NoManifest
-    state "Save loads successfully" as LoadSucceeds
-    state "Manifest file visible" as ManifestVisible
-    state "Tampered bundle is rejected" as BundleRejected
-    state "Tampered file set is rejected" as ManifestRejected
-    state "Invalid manifest is rejected" as InvalidManifestRejected
-    state "Renamed game slot still loads" as RenameCompatible
+    state "Legacy or unprotected profile" as Legacy
+    state "Protected manifest current" as Protected
+    state "Manifest rejected" as ManifestRejected
+    state "Bundle checksum rejected" as BundleRejected
+    state "Save accepted" as Accepted
+    state "Manifest refreshed" as Refreshed
+    state "Rename-compatible protected set" as RenameCompatible
 
-    [*] --> NoManifest: start with legacy or empty profile
-    NoManifest --> LoadSucceeds: read legacy bundle / Bundle loads
-    NoManifest --> ManifestVisible: write protected save / save_checksums.dat appears
-    ManifestVisible --> LoadSucceeds: read protected save / load succeeds
-    LoadSucceeds --> ManifestVisible: save, delete, overwrite, or settings write / manifest timestamp or checksum changes
-    ManifestVisible --> BundleRejected: edit JSON value without updating __checksum / IOException is observed
-    ManifestVisible --> ManifestRejected: flip protected file bytes or rename protected file / IOException is observed
-    ManifestVisible --> InvalidManifestRejected: corrupt manifest shape or overall checksum / IOException is observed
-    ManifestVisible --> RenameCompatible: rename game1 to another game slot folder / load still succeeds
-    RenameCompatible --> ManifestVisible: next protected write / manifest refresh is visible
-    BundleRejected --> ManifestVisible: rewrite through FileUtils / load succeeds again
-    ManifestRejected --> ManifestVisible: rewrite through FileUtils / load succeeds again
+    [*] --> Legacy: no save_checksums.dat
+    Legacy --> Accepted: read legacy bundle
+    Legacy --> Refreshed: write protected save
+    Refreshed --> Protected: save_checksums.dat written
+    Protected --> Accepted: manifest matches, then bundle checksum matches
+    Protected --> ManifestRejected: protected file bytes, path set, or manifest metadata changed
+    Protected --> RenameCompatible: normalized game-slot path still equivalent
+    RenameCompatible --> Accepted: compatible manifest validates
+    Protected --> BundleRejected: manifest absent or passes, but __checksum mismatch remains
+    Accepted --> Refreshed: save, delete, overwrite, temp recovery, or settings write
+    ManifestRejected --> Refreshed: rewrite through FileUtils
+    BundleRejected --> Refreshed: rewrite through FileUtils
 ```
 
 ### Unit Test Path Definitions
@@ -430,7 +453,7 @@ Structured suite:
 | `legacyBundleChecksumManifestStaysCompatibleWithSignedSaveFiles` | legacy compatibility | Legacy bundle-checksum manifest remains compatible with signed saves. |
 | `renamingProtectedGameSaveFileIsRejected` | protected path validation | Rename protected file -> manifest mismatch rejection. |
 | `movingRootSaveFileIntoGameFolderIsRejected` | path normalization and protected-file set | Move root save into slot folder -> mismatch rejection. |
-| `blindJsonValueEditWithStaleChecksumIsRejected` | bundle checksum + manifest | JSON value edit without recomputing checksum -> rejection. |
+| `blindJsonValueEditWithStaleChecksumIsRejected` | manifest first, bundle checksum fallback | Protected JSON value edit without recomputing checksums -> manifest rejection before bundle parsing. |
 | `deleteFileAndOverwriteFile_refreshManifestAfterPrimaryAction` | delete/overwrite helpers + manifest refresh | File deletion and overwrite update manifest state. |
 | `cleanTempFilesRefreshesManifestAfterRecoveringNewerTempFile` | temp recovery + manifest refresh | Newer valid temp replaces original and refreshes manifest. |
 | `cleanTempFilesDeletesEmptyFilesInvalidTempsAndOlderTemps` | temp cleanup branches | Empty, invalid, and older temp cleanup paths. |
@@ -455,8 +478,9 @@ The benchmark deletion flow permanently overwrote/deleted save files. The featur
 - `Dungeon.deleteGame` calls `RecoveryManager.moveToRecovery(save)` before overwriting/deleting.
 - `RecoveryManager` copies flat save-slot files to `recovery/<timestamp>_<slot>/`.
 - Only the five newest recovery entries are retained.
+- `TitleScene` routes to `StartScene` when recovery entries exist, even if there are no active saves.
 - `StartScene` displays a Recover button when recoveries exist.
-- `WndRecoverySave` lists recoveries and restores one into a target slot, confirming overwrite when necessary.
+- `WndRecoverySave` lists recoveries and restores each entry to its original slot, confirming overwrite when necessary. The lower-level `RecoveryManager.restoreEntry` API can restore to any caller-provided target slot.
 
 ### Changed Function Complexity
 
@@ -465,11 +489,12 @@ The benchmark deletion flow permanently overwrote/deleted save files. The featur
 | `Dungeon.deleteGame` | approx. 3 | approx. 3 | 0 | New recovery call is linear and before existing `deleteLevels` branch. Deletion branch complexity is unchanged. |
 | `RecoveryManager.moveToRecovery` | 0 | 2 | +2 | New method. Paths: source slot missing return; source exists -> copy -> prune. |
 | `RecoveryManager.listRecoveryEntries` | 0 | 4 | +4 | New method. Paths: iterate recovery dir, keep directories, ignore files/malformed entries, sort. |
-| `RecoveryManager.restoreEntry` | 0 | 1 | +1 | New method. Linear delete target, copy entry, mark slot unknown. |
+| `RecoveryManager.restoreEntry` | 0 | 1 by JaCoCo; 2 operational outcomes | +1 new method | New method. Deletes the target, copies the recovery entry, marks the slot unknown, then refreshes the save manifest best-effort. Source/path analysis includes manifest-refresh success and swallowed `IOException`; JaCoCo reports the method as linear because the catch block is not counted as a branch in the generated counter. |
 | `RecoveryManager.slotFromEntryName` | 0 | 4 | +4 | New method. Paths: malformed name, matching slot, non-matching slots, unknown return. |
 | `RecoveryManager.isRecoveryEntryName` | 0 | 4 | +4 | New helper. Paths: missing separator, non-numeric timestamp, missing/invalid slot folder, valid entry. |
 | `RecoveryManager.copyGameDir` | 0 | 3 | +3 | New method. Paths: iterate files, copy non-directory, skip directory. |
 | `RecoveryManager.pruneOldEntries` | 0 | 2 | +2 | New method. Paths: under/equal cap, over cap loop deleting oldest. |
+| `TitleScene` enter-button branch | existing | +1 local branch | +1 | Adds recovery-aware routing: no saves and no recoveries starts hero selection; no saves but recoveries routes to `StartScene` so the Recover button is reachable. |
 | `StartScene.create` recovery block | existing | +1 local branch | +1 | Adds `if recoveries exist` and button creation/click path. |
 | `WndRecoverySave` constructor | 0 | approx. 4 | +4 | New UI. Paths: entries iteration, invalid entry skip, timestamp/age formatting, restore button creation. |
 | `WndRecoverySave.onRestoreClicked` | 0 | 2 | +2 | New UI. Paths: target occupied confirmation vs direct restore. |
@@ -511,30 +536,35 @@ flowchart TD
     L --> N[Overwrite game.dat with junk]
     M --> N
     N --> O[GamesInProgress.delete]
+    O --> P[Later restoreEntry copies recovery to target slot]
+    P --> Q[Best-effort save manifest refresh]
 ```
 
 ### FSM Diagram
 
+The recovery FSM is abstracted around lifecycle state, not individual UI widgets. UI states are only called out where they change the lifecycle: discoverability of recoveries and overwrite confirmation.
+
 ```mermaid
 stateDiagram-v2
-    state "No recovery entry visible" as NoRecovery
-    state "Recover button visible" as RecoverButton
-    state "Recovery entry listed" as RecoveryListed
-    state "Deleted slot no longer visible" as DeletedSlot
-    state "Five newest recoveries listed" as FiveListed
-    state "Overwrite confirmation visible" as ConfirmOverwrite
-    state "Restored slot visible" as RestoredSlot
-    state "Recovery entry still listed" as EntryRetained
+    state "No recovery available" as None
+    state "Recovery captured" as Captured
+    state "Recoveries discoverable" as Discoverable
+    state "Retention pruned" as Pruned
+    state "Restore pending" as Pending
+    state "Restored and slot invalidated" as Restored
+    state "Manifest refresh best-effort" as ManifestRefresh
+    state "Recovery retained" as Retained
 
-    [*] --> NoRecovery: profile has no recovery folder / no Recover button
-    NoRecovery --> RecoveryListed: delete existing save / recovery entry appears on disk
-    RecoveryListed --> DeletedSlot: delete completes / original slot files are gone or overwritten
-    RecoveryListed --> RecoverButton: open start scene / Recover button is visible
-    RecoveryListed --> FiveListed: create six recovery entries / oldest entry is not listed
-    RecoverButton --> RestoredSlot: restore to empty target slot / restored files appear in target slot
-    RecoverButton --> ConfirmOverwrite: restore to occupied target slot / confirmation dialog appears
-    ConfirmOverwrite --> RestoredSlot: confirm overwrite / old occupant files disappear and restored files appear
-    RestoredSlot --> EntryRetained: list recoveries again / same recovery entry is still listed
+    [*] --> None: profile starts without recovery entries
+    None --> Captured: delete existing save / moveToRecovery copies slot files
+    Captured --> Discoverable: TitleScene/StartScene detects recovery entries
+    Captured --> Pruned: more than five entries / oldest removed
+    Pruned --> Discoverable: five newest entries remain
+    Discoverable --> Pending: user selects restore
+    Pending --> Restored: empty target or overwrite confirmed
+    Restored --> ManifestRefresh: updateSaveManifest succeeds or IOException is swallowed
+    ManifestRefresh --> Retained: recovery entry remains available
+    Retained --> Discoverable: listing recoveries again
 ```
 
 ### Unit Test Path Definitions
@@ -545,6 +575,7 @@ Unit test file:
 
 | Unit test | Path exercised |
 |---|---|
+| `constructor_canBeInstantiated` | Public constructor smoke path for testability of the manager class. |
 | `slotFromEntryName_validEntry_returnsCorrectSlot` | Valid timestamp/slot entry name -> slot number. |
 | `slotFromEntryName_nameWithoutUnderscore_returnsNegativeOne` | Malformed name -> `-1`. |
 | `slotFromEntryName_unknownSlotFolder_returnsNegativeOne` | Unknown slot folder -> loop exhausts -> `-1`. |
@@ -598,33 +629,36 @@ Integration test file:
 
 - `core/src/integrationTest/java/com/shatteredpixel/shatteredpixeldungeon/actors/mobs/MergedFeatureIntegrationTest.java`
 
+This suite contains the 9 cross-feature integration tests. They are counted separately from the 42 single-feature integration tests in the inventory above.
+
 | Integration test | Features crossed | Scenario structure |
 |---|---|---|
-| `saveWriteThenMobLog_keepsManifestValidAndIgnoresLogFile` | Mob logging + save integrity | Save write -> real mob log file sink -> manifest still tracks only protected save files. |
-| `deleteToRecovery_thenRestore_preservesChecksumReadableSave` | Recovery + save integrity | Protected save -> recovery -> delete -> restore -> restored save loads. |
-| `restoredSaveTampering_isRejectedAfterRecoveryRestore` | Recovery + save integrity | Restore save -> external tamper -> protected read rejected. |
-| `mobLogBeforeDelete_isCopiedOnlyIfInsideSlotAndDoesNotBreakRecovery` | Mob logging + recovery + manifest filtering | Slot-local diagnostic log copied to recovery but excluded from save manifest. |
-| `recoveryDirectoryContents_areExcludedFromSaveManifest` | Recovery + save integrity | Recovery entries exist but manifest excludes recovery directory contents. |
-| `multipleRecoveredSlots_restoreChosenEntryAndManifestValidatesTarget` | Recovery + save integrity | Multiple recovery entries -> chosen restore -> target slot validates through manifest. |
-| `loggerSinkFailure_doesNotPreventSaveManifestOrRecoveryWorkflow` | Mob logging + recovery + save integrity | Throwing logger sink is isolated; save and recovery workflow still succeeds. |
-| `helperDeletionWorkflow_updatesManifestAndRecoveryKeepsOriginalBytes` | Recovery + save integrity | FileUtils deletion updates manifest while recovery retains original bytes. |
-| `deleteGameRestoreLoadThenTamper_lifecycleKeepsRecoveryReadableAndRejectsTamper` | All three | Log events -> `Dungeon.deleteGame` -> restore -> load -> later tamper rejection. |
+| `saveWriteThenMobLog_keepsManifestValidAndIgnoresLogFile` | Mob logging + save integrity | Write protected save -> enable real mob log file sink -> emit mob events -> read manifest -> assert only protected save files are tracked, not the diagnostic log. |
+| `deleteToRecovery_thenRestore_preservesChecksumReadableSave` | Recovery + save integrity | Write protected slot -> move it to recovery -> delete active slot -> restore recovery -> load restored bundle through manifest and bundle checksum validation. |
+| `restoredSaveTampering_isRejectedAfterRecoveryRestore` | Recovery + save integrity | Restore a protected save -> edit restored bytes externally -> protected read rejects the stale restored file. |
+| `mobLogBeforeDelete_isCopiedOnlyIfInsideSlotAndDoesNotBreakRecovery` | Mob logging + recovery + manifest filtering | Create slot-local diagnostic log -> move slot to recovery -> restore -> confirm log can be copied with the slot while remaining outside manifest protection scope. |
+| `recoveryDirectoryContents_areExcludedFromSaveManifest` | Recovery + save integrity | Create recovery entries beside active saves -> refresh/read manifest -> assert recovery directory contents are excluded from protected save-file checks. |
+| `multipleRecoveredSlots_restoreChosenEntryAndManifestValidatesTarget` | Recovery + save integrity | Create multiple recovered slots -> select one entry -> restore into the target slot -> read the target through manifest validation to prove the selected entry, not another recovery, was restored. |
+| `loggerSinkFailure_doesNotPreventSaveManifestOrRecoveryWorkflow` | Mob logging + recovery + save integrity | Configure a throwing logger sink -> emit mob events -> write save -> move and restore recovery -> assert logger failure is isolated from save manifest and recovery workflows. |
+| `helperDeletionWorkflow_updatesManifestAndRecoveryKeepsOriginalBytes` | Recovery + save integrity | Move original slot to recovery -> delete active slot through `FileUtils` -> manifest updates for active files -> recovery copy still preserves the original bytes. |
+| `deleteGameRestoreLoadThenTamper_lifecycleKeepsRecoveryReadableAndRejectsTamper` | All three | Emit mob logs -> delete through `Dungeon.deleteGame` -> restore recovery -> load restored save successfully -> tamper afterward -> protected read rejects the tampered save. |
 
 ### Latest Test Evidence
 
-Latest local verification on 2026-05-23:
+Latest local verification rerun on 2026-05-24:
 
 ```bash
 cd shattered-pixel-dungeon-3.0.2
 JAVA_HOME=/Library/Java/JavaVirtualMachines/amazon-corretto-17.jdk/Contents/Home GRADLE_USER_HOME=.gradle ./gradlew featureTest --no-daemon
 ```
 
-Result: **172 tests passed**, with 0 failures, 0 errors, and 0 skipped tests.
+Result: **BUILD SUCCESSFUL**. The test and JaCoCo tasks were up to date on this rerun; the generated JUnit XML artifacts record **172 tests passed**, with 0 failures, 0 errors, and 0 skipped tests.
 
 | Suite | Tests |
 |---|---:|
 | `:core:test` | 56 |
-| `:core:integrationTest` | 27 |
+| `:core:integrationTest` feature integration | 18 |
+| `:core:integrationTest` cross-feature integration | 9 |
 | `:SPD-classes:test` | 65 |
 | `:SPD-classes:integrationTest` | 24 |
 | **Total** | **172** |
@@ -637,4 +671,4 @@ Latest scoped JaCoCo evidence from `featureTest`:
 | Recovery saves | `RecoveryManager*` | 100.0% | 100.0% | 100.0% |
 | Save integrity checksum | `Bundle*`, `FileUtils*`, `GameSettings*`, `CrashReportWriter*` | 100.0% | 98.9% | 99.9% |
 
-Important coverage scope note: `core/build.gradle` filters JaCoCo to `MobBehaviourLogger*` and `RecoveryManager*`. It does not include the full upstream game or UI classes such as `Dungeon`, `StartScene`, and `WndRecoverySave`. Those UI and lifecycle paths are covered by source review and integration tests, but their line coverage is not represented in the filtered coverage percentages.
+Important coverage scope note: `core/build.gradle` filters JaCoCo to `MobBehaviourLogger*` and `RecoveryManager*`. It does not include the full upstream game or UI/scene classes such as `Dungeon`, `TitleScene`, `StartScene`, and `WndRecoverySave`. Those UI and lifecycle paths are covered by source review and by integration-path tests where the headless suite can reach the underlying manager APIs, but their line coverage is not represented in the filtered coverage percentages.
